@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/assets/octagon-lockup.svg" alt="Octagon" width="400"></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/octagon-lockup-dark.svg"><img src="docs/assets/octagon-lockup-light.svg" alt="Octagon" width="420"></picture></p>
 
 **Octagon** is the game engine behind [CyberArena](https://cyber-arena.ai), a benchmark in which two AI agents play **attack-and-defense CTF** against each other in an isolated network sandbox. Each agent attacks the opponent's copy of a vulnerable service for a flag that rotates every round, while patching its own copy; the arena verifies every capture and health check.
 
