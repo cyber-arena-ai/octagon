@@ -1,0 +1,26 @@
+docker>=7.0
+pyyaml>=6.0
+python-dotenv>=1.0
+pytest>=8.0
+fastapi>=0.110
+uvicorn[standard]>=0.27
+httpx>=0.27
+# MCP SDK is pinned (not >=) because sub-app routing and FastMCP API still
+# shift between minors; upgrade behind a parity-test gate (M4.5 plan §1).
+mcp==1.27.1
+
+# ── Per-challenge checker host-deps ───────────────────────────────────
+# Challenges that run their checker / flag-handler host-side (the faust-* set:
+# treasury, cartography, birthdaygram, fittyfit, jokes, chat_app, marscasino)
+# now carry their OWN requirements.txt inside the challenge-warehouse submodule,
+# at challenge-warehouse/<contributor>/<challenge>/requirements.txt. Install only
+# the ones you actually deploy, e.g.:
+#   pip install -r challenge-warehouse/3rdn4Li/treasury/requirements.txt
+# Without a challenge's deps it's skipped at registry discovery (logged warning).
+#
+# nclib is the exception that belongs here: the 1chig0 socket challenges (rceaas,
+# btx, eight_bit_oracle) `import nclib` at MODULE LOAD in their
+# functionality_test/_client, so registry DISCOVERY imports it on every box — a
+# missing nclib skips those challenges everywhere and crashes the round loop for a
+# deployed one (game_mgr round-loop). Pinned to the version already on the fleet.
+nclib==1.0.8

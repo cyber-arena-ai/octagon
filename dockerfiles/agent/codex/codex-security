@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# codex-security — the arena's routed front door to OpenAI's `codex-security` scanner.
+#
+# This file SHADOWS the real binary. It installs to /usr/local/bin/codex-security, which
+# precedes /usr/bin on PATH, so an agent (or codex-security-mcp) that runs `codex-security`
+# gets this wrapper and is routed correctly by default. The unwrapped binary is still
+# reachable at its absolute path /usr/bin/codex-security (that is what this script calls
+# internally, so it does not recurse into itself).
+#
+# WHY A WRAPPER. Bare codex-security is inert inside an arena container, three ways:
+#
+#   1. It IGNORES the ambient $CODEX_HOME/config.toml. It deep-merges a frozen in-source
+#      default with only `--codex` / `--model` / `--effort` overrides, mkdtemps its own
+#      isolated CODEX_HOME, and strips the ambient one from the child env. So the provider
+#      block agents/codex.py writes — the one pointing at api-router — is invisible to it,
+#      and it defaults to https://api.openai.com/v1/responses.
+#   2. That host is in NO firewall allow-list, so on an isolated topology the CONNECT is
+#      denied by api-router:3128 and the scan dies in network retries.
+#   3. A claude-provider team's agent.env exports ANTHROPIC_* only — no CODEX_API_KEY,
+#      which is the variable codex-security reads.
+#
+# Repeatable `--codex '<dotted.key>=<toml literal>'` overrides ARE honored and survive into
+# the runtime config, so routing is expressible — but a caller who forgets one flag silently
+# reverts to direct-OpenAI: unmetered, outside every per-team budget, and firewall-denied.
+# That failure is silent and its blast radius is a whole match, so the routing does not
+# belong in a prompt or a yaml string literal. It lives here, once.
+#
+# CONTRACT
+#   codex-security scan /path/to/src [any codex-security flags]
+#   codex-security scans list | scans compare A B | findings ... | export ...
+#
+#   - Routing is injected for the subcommands that accept it (scan / bulk-scan).
+#   - No key or base URL resolvable  -> exit 2 with the reason. NEVER a silent direct call.
+#   - `patch` / `validate` are REFUSED: they run `codex exec --ignore-user-config` and
+#     reject provider overrides, so they cannot be routed or metered at all. Override with
+#     CSEC_ALLOW_UNROUTED=1 if you accept unmetered spend that the firewall will also block.
+#   - Exit 1 means "findings at/above the severity threshold", i.e. the scan SUCCEEDED at its
+#     job. That is remapped to 0 so a wrapper/agent does not read it as a failed step —
+#     unless the caller asked for the gating behaviour with --fail-on-severity. 2 stays 2.
+#
+# Env knobs (all optional; the CSEC_ prefix is a distinct namespace on purpose — codex-security
+# itself owns CODEX_SECURITY_*, so these must not collide with it):
+#   CSEC_BASE_URL   override the resolved router base URL
+#   CSEC_MODEL      scan model (default: the team's own model, read from config.toml)
+#   CSEC_EFFORT     reasoning effort (default: leave codex-security's own default, xhigh)
+#   CSEC_ALLOW_UNROUTED=1   permit the unroutable subcommands / skip the routing preflight
+set -uo pipefail
+
+# The unwrapped scanner. Absolute path so shadowing this wrapper on PATH does not recurse.
+REAL=/usr/bin/codex-security
+
+PROG=codex-security
+warn() { printf '%s: %s\n' "$PROG" "$*" >&2; }
+die() { warn "$*"; exit 2; }
+
+[ "$#" -gt 0 ] || die "usage: $PROG <scan|scans|findings|export|info|...> [args]
+  $PROG scan /path/to/source            scan a local source tree
+  $PROG scans compare <before> <after>  did my fix actually land?
+See also: $REAL <cmd> --help (the unwrapped binary, for reading help text only)."
+
+SUBCMD="$1"
+
+# ── the two subcommands that can never be routed ────────────────────────────────
+case "$SUBCMD" in
+  patch|validate)
+    if [ "${CSEC_ALLOW_UNROUTED:-0}" != "1" ]; then
+      die "'$SUBCMD' cannot be routed through api-router: it runs \`codex exec
+    --ignore-user-config\` and rejects provider overrides, so its spend is neither metered
+    nor charged to this team's budget, and the egress firewall will deny the call anyway.
+    Scan, then apply fixes yourself (edit the source, then restart the service through the
+    arena tool). Set CSEC_ALLOW_UNROUTED=1 only if you understand both consequences."
+    fi
+    warn "'$SUBCMD' is running UNROUTED (CSEC_ALLOW_UNROUTED=1): unmetered and likely firewall-denied."
+    exec "$REAL" "$@"
+    ;;
+esac
+
+# ── credential: whichever principal token this team's provider staged ────────────
+# Both are the api-router principal token for this team, not a provider key.
+KEY="${CODEX_API_KEY:-${ANTHROPIC_API_KEY:-}}"
+[ -n "$KEY" ] || die "no API key in the environment (looked at CODEX_API_KEY, ANTHROPIC_API_KEY).
+    agent.env should have exported one; is this running outside an arena agent container?"
+export CODEX_API_KEY="$KEY"
+
+# ── base URL: prefer an explicit override, then codex's own config, then claude's ─
+BASE="${CSEC_BASE_URL:-}"
+if [ -z "$BASE" ] && [ -n "${CODEX_HOME:-}" ] && [ -f "$CODEX_HOME/config.toml" ]; then
+  # first base_url in the provider block agents/codex.py wrote
+  BASE="$(sed -n 's/^[[:space:]]*base_url[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+          "$CODEX_HOME/config.toml" | head -1)"
+fi
+[ -n "$BASE" ] || BASE="${ANTHROPIC_BASE_URL:-}"
+[ -n "$BASE" ] || die "cannot resolve the router base URL (tried CSEC_BASE_URL,
+    \$CODEX_HOME/config.toml, ANTHROPIC_BASE_URL). Refusing to run: without it
+    codex-security would POST straight to api.openai.com — unmetered and firewall-denied."
+
+# The Responses wire lives under /v1. codex's config carries the suffix; claude's
+# ANTHROPIC_BASE_URL does not, so normalize rather than depend on which team staged it.
+case "$BASE" in
+  */v1|*/v1/) ;;
+  */) BASE="${BASE}v1" ;;
+  *)  BASE="${BASE}/v1" ;;
+esac
+
+# ── honour what the caller already passed; only fill in what is missing ─────────
+have_model=0; have_effort=0; have_failon=0
+for a in "$@"; do
+  case "$a" in
+    --model|--model=*)             have_model=1 ;;
+    --effort|--effort=*)           have_effort=1 ;;
+    --fail-on-severity|--fail-on-severity=*) have_failon=1 ;;
+  esac
+done
+
+ARGS=("$@")
+# Routing: a custom model_provider pointed at api-router, same Responses wire and
+# env_key that agents/codex.py already relies on for the codex harness.
+ARGS+=(--codex 'model_provider="arena"'
+       --codex 'model_providers.arena.name="arena"'
+       --codex "model_providers.arena.base_url=\"$BASE\""
+       --codex 'model_providers.arena.wire_api="responses"'
+       --codex 'model_providers.arena.env_key="CODEX_API_KEY"')
+# Default the scan model to the TEAM's model (read back out of codex's config.toml) rather
+# than codex-security's own gpt-5.6-sol. Two reasons, both bite in a real match: the team's
+# model is the one declared in `api_router.pricing`, so its spend is priced and the per-team
+# budget can actually fire; and gpt-5.6-sol is refused outright by the upstream's
+# Trusted-Access-for-Cyber filter on agentic requests.
+if [ "$have_model" -eq 0 ]; then
+  MODEL="${CSEC_MODEL:-}"
+  if [ -z "$MODEL" ] && [ -n "${CODEX_HOME:-}" ] && [ -f "$CODEX_HOME/config.toml" ]; then
+    MODEL="$(sed -n 's/^[[:space:]]*model[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+             "$CODEX_HOME/config.toml" | head -1)"
+  fi
+  [ -n "$MODEL" ] && ARGS+=(--model "$MODEL")
+fi
+[ "$have_effort" -eq 1 ] || { [ -n "${CSEC_EFFORT:-}" ] && ARGS+=(--effort "$CSEC_EFFORT"); }
+
+"$REAL" "${ARGS[@]}"
+rc=$?
+
+# Exit 1 = "found findings at/above the threshold" = the scan did its job. Only the caller
+# who explicitly asked for that gate wants it to read as a failure.
+if [ "$rc" -eq 1 ] && [ "$have_failon" -eq 0 ]; then
+  exit 0
+fi
+exit "$rc"

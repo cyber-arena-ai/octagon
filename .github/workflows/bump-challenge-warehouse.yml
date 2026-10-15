@@ -1,0 +1,39 @@
+# Keep the challenge-warehouse submodule pointer following its latest `main`.
+#
+# A submodule pins a SHA, so "always latest" means automating the bump. This
+# job moves the pointer to the warehouse's main tip and commits it on:
+#   - a daily schedule,
+#   - manual run (workflow_dispatch),
+#   - a repository_dispatch (type: warehouse-updated) the warehouse repo can
+#     send on every push to its main (cross-repo, needs a PAT in the warehouse).
+name: Bump challenge-warehouse
+
+on:
+  schedule:
+    - cron: "0 6 * * *"      # daily 06:00 UTC
+  workflow_dispatch: {}
+  repository_dispatch:
+    types: [warehouse-updated]
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Move submodule to latest warehouse main
+        run: |
+          git submodule update --remote --init challenge-warehouse
+          if git diff --quiet -- challenge-warehouse; then
+            echo "already up to date"; exit 0
+          fi
+          sha="$(git -C challenge-warehouse rev-parse --short HEAD)"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add challenge-warehouse
+          git commit -m "chore: bump challenge-warehouse to ${sha} (latest main)"
+          git push

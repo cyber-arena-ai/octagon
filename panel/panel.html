@@ -1,0 +1,1135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cyber Arena — Live Panel</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f0f1a;
+    --bg-card: #181828;
+    --text: #e0e0e0;
+    --text-dim: #888;
+    --text-faint: #555;
+    --accent: #7c6ef0;
+    --mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 1.5rem 1.5rem 4rem;
+    line-height: 1.4;
+  }
+
+  header {
+    max-width: 1400px; margin: 0 auto 1.2rem;
+    display: flex; align-items: baseline; justify-content: space-between;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 1rem;
+  }
+  header h1 { font-size: 1.4rem; font-weight: 700; letter-spacing: 0.02em; }
+  header h1 .accent { color: var(--accent); }
+  header .meta {
+    display: flex; gap: 2rem; align-items: baseline;
+    font-family: var(--mono); font-size: 0.85rem; color: var(--text-dim);
+  }
+  header .meta .label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; }
+  header .meta .round { color: var(--text); font-weight: 600; }
+  header .meta .phase {
+    padding: 0.2rem 0.6rem; border-radius: 4px;
+    background: rgba(124, 110, 240, 0.15); color: var(--accent);
+    font-size: 0.75rem; font-weight: 600; letter-spacing: 0.05em;
+  }
+  header .meta .phase[data-phase=DEFENSE] { background: rgba(78, 205, 196, 0.15); color: #4ecdc4; }
+  header .meta .phase[data-phase=ATTACK]  { background: rgba(255, 107, 107, 0.15); color: #ff6b6b; }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center;
+    max-width: 1400px; margin: 0 auto 1rem;
+    padding: 0.7rem 1rem;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+  }
+  .cat-toggle {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    font-size: 0.72rem; font-family: var(--mono);
+    padding: 0.25rem 0.6rem; border-radius: 4px;
+    cursor: pointer; user-select: none;
+    background: rgba(255,255,255,0.05);
+  }
+  .cat-toggle:hover { background: rgba(255,255,255,0.10); }
+  .cat-toggle.off { opacity: 0.35; text-decoration: line-through; }
+  .cat-toggle .swatch { width: 0.7rem; height: 0.7rem; border-radius: 2px; }
+
+  .zoom-row {
+    display: flex; align-items: center; gap: 0.7rem; justify-content: center;
+    max-width: 1400px; margin: 0 auto 0.6rem;
+    font-family: var(--mono); font-size: 0.72rem; color: var(--text-dim);
+  }
+  .zoom-row input[type=range] { width: 220px; accent-color: var(--accent); }
+  .zoom-row .val { color: #ddd; min-width: 4ch; text-align: right; }
+  .zoom-row label { display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+
+  .timeline {
+    max-width: 1400px; margin: 0 auto;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 1rem 0 1.5rem;
+    position: relative;
+    overflow: auto; max-height: 70vh;
+  }
+  .timeline-row {
+    /* Inner flex container so the lane-label gutter can stick to the
+       left edge while the SVG canvas scrolls horizontally. */
+    display: flex; align-items: flex-start;
+    min-width: max-content;
+  }
+  .lane-gutter {
+    position: sticky; left: 0; z-index: 2;
+    flex: 0 0 110px;
+    background: #131321;
+    /* Top padding matches the SVG axis area so labels line up with lanes. */
+    padding-top: 64px;
+    border-right: 1px solid rgba(255,255,255,0.05);
+  }
+  .lane-gutter .lane-label {
+    height: 36px;
+    line-height: 36px;
+    padding: 0 12px 0 0;
+    text-align: right;
+    font-family: var(--mono); font-size: 11px;
+    white-space: nowrap;
+  }
+  .timeline svg { display: block; }
+
+  .tooltip {
+    position: fixed; pointer-events: none;
+    background: #1d1d2e; border: 1px solid rgba(255,255,255,0.15);
+    color: var(--text); padding: 0.5rem 0.7rem; border-radius: 6px;
+    font-family: var(--mono); font-size: 0.7rem;
+    max-width: 540px; line-height: 1.45;
+    white-space: pre-wrap; box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    opacity: 0; transition: opacity 0.1s ease; z-index: 100;
+  }
+  .tooltip.show { opacity: 1; }
+  .tooltip .tt-cat   { font-weight: 700; margin-right: 0.5rem; }
+  .tooltip .tt-actor { color: #ffe66d; font-size: 0.65rem; }
+  .tooltip .tt-ts    { color: #4ecdc4; font-size: 0.65rem; }
+  .tooltip .tt-meta  { color: #888;   font-size: 0.65rem; display: block; margin: 0.2rem 0; }
+
+  footer {
+    max-width: 1400px; margin: 1.2rem auto 0;
+    padding-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--mono); font-size: 0.72rem; color: var(--text-dim);
+  }
+  .conn { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .conn .dot {
+    width: 0.55rem; height: 0.55rem; border-radius: 50%;
+    background: var(--text-faint);
+    box-shadow: 0 0 0 0 rgba(0,0,0,0);
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+  .conn[data-state=trying]  .dot { background: #fbb360; box-shadow: 0 0 8px rgba(251, 179, 96, 0.6); }
+  .conn[data-state=ok]      .dot { background: #6ee7b7; box-shadow: 0 0 8px rgba(110, 231, 183, 0.6); }
+  .conn[data-state=lost]    .dot { background: #ff8b8b; box-shadow: 0 0 8px rgba(255, 139, 139, 0.6); }
+  .conn[data-state=snapshot] .dot { background: var(--accent); box-shadow: 0 0 8px rgba(124, 110, 240, 0.6); }
+  .conn .text { color: var(--text-dim); }
+
+  /* ── agent transcripts (below the timeline) ───────────────── */
+  .transcripts { max-width: 1400px; margin: 1.6rem auto 0; }
+  .transcripts > h2 {
+    font-size: 0.9rem; font-weight: 600; color: #aaa;
+    margin-bottom: 0.7rem;
+    display: flex; align-items: baseline; gap: 0.6rem;
+  }
+  .transcripts > h2 .sub { font-size: 0.7rem; color: var(--text-faint); font-family: var(--mono); }
+  .transcript-team { margin-bottom: 1.1rem; }
+  .transcript-team-name {
+    font-family: var(--mono); font-size: 0.82rem; font-weight: 700;
+    margin-bottom: 0.4rem;
+  }
+  .transcript-host {
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 8px; margin-bottom: 0.6rem;
+  }
+  .transcript-host > summary {
+    padding: 0.6rem 0.9rem; cursor: pointer;
+    font-family: var(--mono); font-size: 0.78rem;
+    display: flex; align-items: baseline; gap: 0.9rem; flex-wrap: wrap;
+  }
+  .transcript-host > summary:hover { background: rgba(255,255,255,0.04); }
+  .transcript-host .host-name { color: #ffe66d; font-weight: 700; }
+  .transcript-host .host-stats { color: var(--text-dim); font-size: 0.72rem; }
+  .cards { padding: 0.3rem 0.8rem 0.8rem; display: flex; flex-direction: column; gap: 0.3rem; }
+  .card {
+    border-left: 3px solid rgba(255,255,255,0.12);
+    padding: 0.4rem 0.65rem; background: rgba(255,255,255,0.02);
+    border-radius: 4px; font-family: var(--mono); font-size: 0.74rem;
+  }
+  .card.kind-system      { border-left-color: #b794f4; }
+  .card.kind-thinking    { border-left-color: #7c6ef0; opacity: 0.85; }
+  .card.kind-text        { border-left-color: #f687b3; }
+  .card.kind-tool-use    { border-left-color: #fbb360; }
+  .card.kind-tool-result { border-left-color: #4ecdc4; }
+  /* chunk boundary: a divider marking an agent restart within the one trajectory */
+  .card.kind-chunk-boundary {
+    border-left-color: #6b7280; background: rgba(255,255,255,0.03);
+    text-align: center; color: var(--text-dim); font-family: var(--mono);
+    font-size: 0.72rem; letter-spacing: 0.04em;
+  }
+  .card.is-error         { border-left-color: #ff6b6b; background: rgba(255,107,107,0.06); }
+  .card-head { display: flex; gap: 0.55rem; align-items: baseline; }
+  .card-head .icon { font-size: 0.9rem; }
+  .card-head .kind {
+    color: #999; font-size: 0.62rem; text-transform: uppercase;
+    letter-spacing: 0.05em; min-width: 5.5rem; flex: 0 0 5.5rem;
+  }
+  .card-head .title { color: var(--text); word-break: break-word; flex: 1; }
+  .card-body { margin-top: 0.3rem; }
+  .card-body > summary { color: var(--text-dim); font-size: 0.64rem; cursor: pointer; margin-left: 6.05rem; }
+  .card-body > summary:hover { color: #ccc; }
+  .card-body pre {
+    margin-top: 0.3rem; margin-left: 6.05rem; padding: 0.5rem 0.7rem;
+    background: rgba(0,0,0,0.3); border-radius: 4px; font-size: 0.66rem;
+    max-height: 320px; overflow: auto; white-space: pre-wrap;
+    word-break: break-word; color: #ccc;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Cyber Arena <span class="accent">— Live Panel</span></h1>
+  <div class="meta">
+    <span>
+      <span class="label">round</span>
+      <span class="round" id="round-num">0</span>
+      <span class="label" style="margin-left: 0.4rem">/</span>
+      <span class="round" id="round-total">?</span>
+    </span>
+    <span class="phase" id="phase" data-phase="INIT">INIT</span>
+  </div>
+</header>
+
+<div class="controls" id="controls"></div>
+<div class="zoom-row">
+  <label><input type="checkbox" id="follow" checked> follow live tail</label>
+  <span style="margin-left: 1rem">zoom</span>
+  <input type="range" id="zoom" min="3" max="100" step="1" value="24">
+  <span class="val" id="zoom-val">24</span> px/s
+</div>
+<div class="timeline" id="timeline"></div>
+<div class="tooltip" id="tooltip"></div>
+
+<section class="transcripts" id="transcripts" hidden>
+  <h2>Agent transcripts <span class="sub" id="transcripts-sub"></span></h2>
+  <div id="transcripts-body"></div>
+</section>
+
+<section class="mtx" id="metrics" hidden>
+  <style>
+    .mtx{margin:14px 0 0;padding:0 14px}
+    .mtx h2{font-size:14px;margin:0 0 2px}
+    .mtx-sub{font-size:11px;color:#78879a;font-family:ui-monospace,monospace;font-weight:400}
+    .mtx-cards{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0}
+    .mtx-card{font-family:ui-monospace,monospace;font-size:11px;border:1px solid #243040;border-radius:7px;padding:8px 11px;background:#141b24;line-height:1.5}
+    .mtx-card b{font-size:15px}
+    .mtx-scroll{overflow-x:auto} #mtx-chart{display:block;width:100%;min-width:700px;cursor:crosshair}
+    .mtx-chart-t{fill:#78879a}
+    .mtx-tip{position:fixed;pointer-events:none;z-index:30;background:#0d1117;border:1px solid #243040;
+      border-radius:7px;padding:8px 11px;font-family:ui-monospace,monospace;font-size:11.5px;color:#c9d4e0;
+      box-shadow:0 6px 22px rgba(0,0,0,.55);opacity:0;transition:opacity .07s;white-space:nowrap}
+    .mtx-tip .tt{color:#78879a;font-size:10px;letter-spacing:.1em;margin-bottom:5px;text-transform:uppercase}
+    .mtx-tip .row{display:flex;gap:7px;align-items:center;line-height:1.55}
+    .mtx-tip .sw{width:8px;height:8px;border-radius:2px;flex:none}
+    .mtx-tip .nm{color:#78879a}
+  </style>
+  <h2>Timeline metrics <span class="mtx-sub" id="mtx-sub"></span></h2>
+  <div class="mtx-cards" id="mtx-cards"></div>
+  <div class="mtx-scroll"><svg id="mtx-chart"></svg></div>
+</section>
+<div class="mtx-tip" id="mtx-tip"></div>
+
+<footer>
+  <span class="conn" id="conn" data-state="trying">
+    <span class="dot"></span>
+    <span class="text">connecting…</span>
+  </span>
+  <span id="lane-summary">orchestrator · (teams) · flag-server · health-poller</span>
+</footer>
+
+<script>
+  // ── lanes ────────────────────────────────────────────────────
+  // Layout is: orchestrator → team1 → team2 → … → teamN → flag_server → health_poller.
+  // Team lanes are discovered from events (any team_id that looks like a
+  // team is added to the team group); the framework lanes stay in their
+  // fixed slots regardless of team count.
+  const FRAMEWORK_HEAD = ['orchestrator'];
+  const FRAMEWORK_TAIL = ['flag_server', 'health_poller'];
+  const TEAM_COLOR_PALETTE = [
+    '#ffe66d', '#a8d8ea', '#ff8b8b', '#82d97c', '#fbb360',
+    '#b794f4', '#5ec9c8', '#f687b3', '#a18bff', '#ffaa66',
+  ];
+  // Static lane colors; team colors are assigned from the palette in order
+  // of discovery (first team -> palette[0], second team -> palette[1], …).
+  const STATIC_COLORS = {
+    orchestrator:  '#7c6ef0',
+    flag_server:   '#82d97c',
+    health_poller: '#fbb360',
+  };
+  function colorForActor(a) {
+    if (STATIC_COLORS[a]) return STATIC_COLORS[a];
+    const idx = state.teamLanes.indexOf(a);
+    return idx >= 0 ? TEAM_COLOR_PALETTE[idx % TEAM_COLOR_PALETTE.length] : '#ddd';
+  }
+  function actors() {
+    return FRAMEWORK_HEAD.concat(state.teamLanes, FRAMEWORK_TAIL);
+  }
+  // True for any actor string we should treat as a team lane (i.e. add to
+  // state.teamLanes on first sight). Matches the team_id naming convention
+  // used by topology.yaml — `team` followed by one or more digits.
+  function isTeamActor(a) {
+    return typeof a === 'string' && /^team\d+$/.test(a);
+  }
+
+  // ── categories (drives dot color + toggle bar) ──────────────
+  const CATEGORIES = [
+    { key: 'setup',    label: 'Setup',           color: '#9aa0a6', on: true },
+    { key: 'phase',    label: 'Phase',           color: '#a18bff', on: true },
+    { key: 'kickoff',  label: 'Kickoff',         color: '#ffe66d', on: true },
+    { key: 'agent',    label: 'Agent lifecycle', color: '#ff6b9d', on: true },
+    { key: 'dry_run',  label: 'Dry-run',         color: '#4ecdc4', on: true },
+    { key: 'service',  label: 'Service',         color: '#fbb360', on: true },
+    { key: 'health',   label: 'Health check',    color: '#5ec9c8', on: true },
+    { key: 'flag',     label: 'Flag',            color: '#82d97c', on: true },
+    { key: 'flag_tamper', label: 'Flag tampered', color: '#ff6b6b', on: true },
+    { key: 'attacks_query', label: 'Attacks query',  color: '#e056fd', on: true },
+    { key: 'mcp_query',     label: 'MCP query',      color: '#6c8ebf', on: true },
+    { key: 'other',    label: 'Other',           color: '#888',    on: true },
+  ];
+  const COLOR = Object.fromEntries(CATEGORIES.map(c => [c.key, c.color]));
+  const VISIBLE = Object.fromEntries(CATEGORIES.map(c => [c.key, c.on]));
+
+  function categoryFor(type, payload) {
+    if (type === 'SETUP_STARTED' || type === 'SETUP_COMPLETE' || type === 'IMAGE_BUILT' ||
+        type === 'CONTAINER_READY' || type === 'FACILITY_READY') return 'setup';
+    if (type === 'ROUND_START' || type === 'ROUND_STOP' || type === 'PHASE_CHANGE' || type === 'GAME_END') return 'phase';
+    if (type === 'DEFENSE_KICKOFF' || type === 'ATTACK_KICKOFF') return 'kickoff';
+    if (type === 'SERVICE_HEALTH_CHECK') return 'health';
+    if (type === 'MCP_ATTACKS_QUERY') return 'attacks_query';
+    if (type === 'MCP_STATE_QUERY')   return 'mcp_query';
+    if (type.startsWith('DRY_RUN_')) return 'dry_run';
+    if (type.startsWith('AGENT_'))   return 'agent';
+    // The round-end persistence audit. ANY tamper observed this round is red,
+    // distinct from the green "survived" dots: the flag gone/altered
+    // (NOT_FOUND / MISMATCH) OR a read-precondition broken (AUTH_REJECTED) —
+    // even if repair() healed it, since a repaired tamper is still a tamper (the
+    // `repair=…` label shows it was healed). `initial_status == AUTH_REJECTED`
+    // catches the repaired case (final status may read PRESENT). ERROR
+    // (inconclusive: unhealthy/unreachable) is NOT a tamper → stays green.
+    if (type === 'FLAG_PERSISTENCE') {
+      const s = (payload && payload.status) || '';
+      const init = (payload && payload.initial_status) || '';
+      const tampered = s === 'NOT_FOUND' || s === 'MISMATCH'
+                    || s === 'AUTH_REJECTED' || init === 'AUTH_REJECTED';
+      return tampered ? 'flag_tamper' : 'flag';
+    }
+    if (type.startsWith('FLAG_'))    return 'flag';
+    if (type.startsWith('SERVICE_') || type === 'DEPLOY_COMPLETE') return 'service';
+    return 'other';
+  }
+
+  // Event → actor (lane). Routes by event TYPE first so flag and health
+  // events get their own lanes regardless of the embedded team_id.
+  function actorFor(ev) {
+    const t = ev.type;
+    if (t === 'SERVICE_HEALTH_CHECK')       return 'health_poller';
+    // Setup/bring-up events: facilities to their own lanes; container
+    // readiness to the owning team lane (by node-id prefix); the rest to
+    // orchestrator.
+    if (t === 'FACILITY_READY') {
+      const f = (ev.payload && ev.payload.facility) || '';
+      if (f === 'flag')   return 'flag_server';
+      if (f === 'health') return 'health_poller';
+      return 'orchestrator';
+    }
+    if (t === 'CONTAINER_READY') {
+      const m = ((ev.payload && ev.payload.node) || '').match(/^(team\d+)_/);
+      return m ? m[1] : 'orchestrator';
+    }
+    if (t === 'SETUP_STARTED' || t === 'SETUP_COMPLETE' || t === 'IMAGE_BUILT') return 'orchestrator';
+    if (t === 'FLAG_PLANTED')               return 'flag_server';
+    // FLAG_SUBMITTED is anchored on the SUBMITTER team's lane (so the
+    // team lane gets discovered + shows the submission); render() also
+    // draws a paired dot on flag_server with a connector. See the
+    // FLAG_SUBMITTED block in render().
+    if (t === 'FLAG_SUBMITTED')             return ev.payload?.submitter_team_id || ev.team_id || 'flag_server';
+    if (t === 'ROUND_START' || t === 'ROUND_STOP' ||
+        t === 'PHASE_CHANGE' || t === 'GAME_END') return 'orchestrator';
+    if (t === 'SERVICE_DEPLOYED') {
+      // SERVICE_DEPLOYED's team_id is null; route by container_name suffix.
+      const c = (ev.payload && ev.payload.container) || '';
+      const m = c.match(/^(team\d+)_/);
+      return m ? m[1] : 'orchestrator';
+    }
+    if (ev.team_id) return ev.team_id;
+    return 'orchestrator';
+  }
+
+  // Short tooltip-body summary per event type.
+  function summarize(ev) {
+    const t = ev.type;
+    const p = ev.payload || {};
+    if (t === 'SETUP_STARTED') return `arena bring-up started · run ${p.run || ''}`;
+    if (t === 'SETUP_COMPLETE') {
+      const f = (p.facilities || []).join('+');
+      return `arena ready · ${p.containers ?? '?'} containers · ${p.services ?? '?'} services deployed · facilities: ${f || '?'}`;
+    }
+    if (t === 'IMAGE_BUILT') {
+      const tag = p.tag || '';
+      const i = tag.lastIndexOf(':');
+      const repo = i > 0 ? tag.slice(0, i) : tag;
+      const ver = i > 0 ? tag.slice(i + 1) : '';
+      return `challenge image · ${repo}${ver ? ' @ ' + ver.slice(0, 12) : ''}`;
+    }
+    if (t === 'CONTAINER_READY') return `${p.node || '?'}${p.role ? ' [' + p.role + ']' : ''}${p.image ? ' · ' + p.image : ''}`;
+    if (t === 'FACILITY_READY') return `${p.facility || '?'} ready`;
+    if (t === 'PHASE_CHANGE') return `phase → ${ev.phase}`;
+    if (t === 'ROUND_START' || t === 'ROUND_STOP') return `R${ev.round_id}`;
+    if (t === 'GAME_END') return `reason=${p.reason || '?'}`;
+    if (t === 'FLAG_SUBMITTED') {
+      const verdict = p.accepted ? 'ACCEPTED' : (p.reason || '?');
+      return `${verdict} ${p.submitter_team_id || '?'} → ${p.victim_team_id || '?'} (${p.service || '?'})`;
+    }
+    if (t === 'MCP_ATTACKS_QUERY') {
+      return `${ev.team_id || '?'} checked attacks · ${p.this_round ?? '?'} this round / ${p.total ?? '?'} total`;
+    }
+    if (t === 'MCP_STATE_QUERY') {
+      return `${ev.team_id || '?'} checked game state · R${p.round ?? '?'} ${p.phase || ''}`;
+    }
+    if (t === 'SERVICE_RESTART_REJECTED') {
+      return `${p.service || '?'} restart rejected: ${p.reason || '?'}${ev.team_id ? ' · ' + ev.team_id : ''}`;
+    }
+    if (t === 'FLAG_PERSISTENCE') {
+      const store = (p.store && p.store !== 'default') ? ` [${p.store}]` : '';
+      // surface the raw observation when a repair changed it (precondition tamper)
+      const was = (p.initial_status && p.initial_status !== p.status) ? ` (was ${p.initial_status})` : '';
+      const rep = p.repair ? ` · repair=${p.repair}` : '';
+      return `${p.service || '?'}${store} · ${p.status || '?'}${was}${rep}${ev.team_id ? ' · ' + ev.team_id : ''}`;
+    }
+    if (t === 'FLAG_PLANTED' || t === 'DEPLOY_COMPLETE' || t === 'DEFENSE_KICKOFF' ||
+        t === 'ATTACK_KICKOFF' || t === 'SERVICE_DEPLOYED' ||
+        t === 'SERVICE_RESTART_STARTED' || t === 'SERVICE_RESTART_COMPLETED' ||
+        t === 'SERVICE_RESTART_FAILED') {
+      const dur = p.duration_ms ? ` ${p.duration_ms}ms` : '';
+      const team = ev.team_id || (p.container || '').replace(/_prod$|_dev$/, '');
+      return `${p.service || '?'}${dur}${team ? ' · ' + team : ''}`;
+    }
+    if (t === 'SERVICE_HEALTH_CHECK') {
+      const trig = (p.trigger && p.trigger !== 'periodic') ? ` ⟨${p.trigger}⟩` : '';
+      return `${ev.team_id || '?'}/${p.service || '?'} ${p.level || '?'}=${p.passed}${trig} (${(p.detail || '').slice(0, 80)})`;
+    }
+    if (t === 'AGENT_PROMPT_SENT') {
+      const first = p.prompt_first_line || '';
+      return `${ev.team_id} first=${p.is_first} · ${first.slice(0, 80)}`;
+    }
+    if (t === 'AGENT_COMPLETED' || t === 'AGENT_TIMEOUT' || t === 'AGENT_FAILED' || t === 'AGENT_STOPPED') {
+      const why = t === 'AGENT_STOPPED' ? ' (teardown)' : '';
+      return `${ev.team_id} exit=${p.exit_code} dur=${p.duration_ms}ms${why}`;
+    }
+    if (t === 'DRY_RUN_OK' || t === 'DRY_RUN_FAILED') return p.error || 'ok';
+    if (t === 'AGENT_INSTALLED' || t === 'AGENT_READY' || t === 'DRY_RUN_START') return ev.team_id || '';
+    return '';
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, m => (
+      {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]
+    ));
+  }
+
+  // ── state ────────────────────────────────────────────────────
+  const state = {
+    events: [],            // [{ ts, offset_s, type, category, actor, msg, ev }]
+    seenIds: new Set(),
+    t0: null,              // first event ts, for offset_s computation
+    teamLanes: [],         // discovered team_id values, sorted by lane index
+    live: false,           // true in live (WS) mode → the axis tracks wall-clock
+  };
+
+  function ingest(ev) {
+    if (!ev || !ev.id || state.seenIds.has(ev.id)) return false;
+    state.seenIds.add(ev.id);
+    const ts = ev.ts || 0;
+    if (state.t0 == null) state.t0 = ts;
+    const offset = Math.max(0, ts - state.t0);
+    const actor = actorFor(ev);
+    // Grow the team-lane list whenever we see a new team_id. Natural
+    // numeric sort so team1 / team2 / … / team10 / team11 stay ordered
+    // by their digit suffix rather than lexicographically.
+    if (isTeamActor(actor) && state.teamLanes.indexOf(actor) < 0) {
+      state.teamLanes.push(actor);
+      state.teamLanes.sort((a, b) =>
+        parseInt(a.slice(4), 10) - parseInt(b.slice(4), 10)
+      );
+    }
+    state.events.push({
+      ts, offset_s: offset,
+      type: ev.type, category: categoryFor(ev.type, ev.payload),
+      actor, msg: summarize(ev), ev,
+    });
+    // Header side-effects.
+    if (ev.type === 'ROUND_START') $('round-num').textContent = ev.round_id;
+    // total_rounds rides on ROUND_START (and GAME_END); pick it up from
+    // whichever lands first so the header shows "N / total", not "N / ?".
+    if (ev.payload && ev.payload.total_rounds) $('round-total').textContent = ev.payload.total_rounds;
+    if (ev.type === 'PHASE_CHANGE' || ev.phase) {
+      const ph = $('phase');
+      const raw = (ev.type === 'PHASE_CHANGE') ? (ev.payload?.phase || ev.phase) : ev.phase;
+      // Normalize to upper-case so the CSS color class matches and the
+      // badge stays consistent regardless of how the event was stamped.
+      const phase = raw ? String(raw).toUpperCase() : null;
+      if (phase) { ph.textContent = phase; ph.dataset.phase = phase; }
+    }
+    return true;
+  }
+
+  function $(id) { return document.getElementById(id); }
+
+  // ── SVG renderer ─────────────────────────────────────────────
+  const TIMELINE = $('timeline');
+  const TOOLTIP  = $('tooltip');
+  const NS = 'http://www.w3.org/2000/svg';
+  let DENSITY = 24;     // px per second
+  let FOLLOW = true;    // auto-scroll to right edge when new events arrive
+  // While the pointer is over the timeline, pause the live-tail rebuild:
+  // re-rendering mid-hover destroys the hovered dot before its mouseleave
+  // fires, which would leave the tooltip stuck open. Leaving the timeline
+  // always clears the tooltip (belt-and-suspenders if a dot was orphaned).
+  let hoveringTimeline = false;
+  TIMELINE.addEventListener('mouseenter', () => { hoveringTimeline = true; });
+  TIMELINE.addEventListener('mouseleave', () => { hoveringTimeline = false; hideTooltip(); });
+
+  function render() {
+    // Preserve horizontal scroll across the rebuild: following → snap to
+    // the right edge (live tail); not following → keep the user's position
+    // so a timer re-render doesn't yank them while inspecting history.
+    const prevScroll = TIMELINE.scrollLeft;
+    hideTooltip();   // the rebuild orphans any hovered dot; drop a stale tooltip
+    TIMELINE.innerHTML = '';
+    const ACTOR_LIST = actors();
+    const ROW_H = 36;
+    const LANE_TOP = 64;          // top padding above lanes (axis area)
+    const LEFT_PAD = 16;          // breathing room for the "0s" tick label
+    const RIGHT_PAD = 12;
+    // Bottom of time window: max of last-event offset, wall-clock "now",
+    // and 60s. The `nowOffset` term is what makes the axis keep advancing
+    // in live mode even when no new events arrive. It assumes the panel
+    // host's clock matches the orchestrator's (true for the local panel;
+    // a remote viewer with clock skew may see the now-edge slightly off).
+    // Snapshots (state.live=false) freeze at the last event — the game is
+    // over, so the axis must not run off to the current wall-clock.
+    const lastOffset = state.events.length ? state.events[state.events.length - 1].offset_s : 0;
+    const nowOffset = (state.live && state.t0 != null) ? (Date.now() / 1000 - state.t0) : 0;
+    const T_MAX = Math.max(lastOffset, nowOffset, 60);
+    // SVG canvas width: at least enough to render every event at the
+    // current px/s density, plus pad on both sides. The gutter is
+    // rendered separately as sticky HTML.
+    const W = Math.max(800, LEFT_PAD + T_MAX * DENSITY + RIGHT_PAD);
+    const H = LANE_TOP + ACTOR_LIST.length * ROW_H + 24;
+    const xOf = t => LEFT_PAD + (W - LEFT_PAD - RIGHT_PAD) * (t / T_MAX);
+    const yOf = a => {
+      const i = ACTOR_LIST.indexOf(a);
+      return i < 0 ? null : LANE_TOP + i * ROW_H + ROW_H / 2;
+    };
+
+    // Flex container: sticky lane-label gutter on the left, SVG canvas on the right.
+    const row = document.createElement('div');
+    row.className = 'timeline-row';
+    const gutter = document.createElement('div');
+    gutter.className = 'lane-gutter';
+    ACTOR_LIST.forEach(a => {
+      const lbl = document.createElement('div');
+      lbl.className = 'lane-label';
+      lbl.textContent = a;
+      lbl.style.color = colorForActor(a);
+      gutter.appendChild(lbl);
+    });
+    row.appendChild(gutter);
+
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('width', W);
+    svg.setAttribute('height', H);
+
+    // Lane backgrounds (alternating stripes).
+    ACTOR_LIST.forEach((a, i) => {
+      const bg = document.createElementNS(NS, 'rect');
+      bg.setAttribute('x', 0);
+      bg.setAttribute('y', LANE_TOP + i * ROW_H);
+      bg.setAttribute('width', W);
+      bg.setAttribute('height', ROW_H);
+      bg.setAttribute('fill', i % 2 ? 'rgba(255,255,255,0.015)' : 'rgba(255,255,255,0.035)');
+      svg.appendChild(bg);
+    });
+
+    // Time-axis ticks (adaptive density).
+    const targetTicks = Math.max(4, Math.min(12, Math.floor(W / 120)));
+    const candidates = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+    let dt = candidates[candidates.length - 1];
+    for (const c of candidates) { if (T_MAX / c <= targetTicks) { dt = c; break; } }
+    for (let t = 0; t <= T_MAX + 0.001; t += dt) {
+      const x = xOf(t);
+      const tick = document.createElementNS(NS, 'line');
+      tick.setAttribute('x1', x); tick.setAttribute('y1', LANE_TOP - 8);
+      tick.setAttribute('x2', x); tick.setAttribute('y2', H - 12);
+      tick.setAttribute('stroke', 'rgba(255,255,255,0.06)');
+      svg.appendChild(tick);
+      const lbl = document.createElementNS(NS, 'text');
+      lbl.setAttribute('x', x); lbl.setAttribute('y', LANE_TOP - 14);
+      lbl.setAttribute('text-anchor', 'middle');
+      lbl.setAttribute('font-family', "'JetBrains Mono', monospace");
+      lbl.setAttribute('font-size', '10');
+      lbl.setAttribute('fill', '#666');
+      lbl.textContent = `${t.toFixed(0)}s`;
+      svg.appendChild(lbl);
+    }
+
+    // Phase bands behind lanes: PHASE_CHANGE delimits DEFENSE/ATTACK.
+    const phaseChanges = state.events
+      .filter(e => e.type === 'PHASE_CHANGE')
+      .sort((a, b) => a.offset_s - b.offset_s);
+    const phaseFill = {
+      DEFENSE: 'rgba(78, 205, 196, 0.07)',
+      ATTACK:  'rgba(255, 107, 107, 0.06)',
+    };
+    for (let i = 0; i < phaseChanges.length; i++) {
+      const p = phaseChanges[i];
+      const next = phaseChanges[i + 1];
+      const x0 = xOf(p.offset_s);
+      const x1 = next ? xOf(next.offset_s) : xOf(T_MAX);
+      const phaseName = (p.ev.payload?.phase || p.ev.phase || '').toString();
+      const band = document.createElementNS(NS, 'rect');
+      band.setAttribute('x', x0);
+      band.setAttribute('y', LANE_TOP);
+      band.setAttribute('width', Math.max(1, x1 - x0));
+      band.setAttribute('height', ACTOR_LIST.length * ROW_H);
+      band.setAttribute('fill', phaseFill[phaseName] || 'rgba(255,255,255,0.02)');
+      svg.appendChild(band);
+    }
+
+    // ROUND_START / GAME_END as labelled dashed ticks above the lanes,
+    // packed into two rows so neighbors don't collide.
+    const rowYs = [LANE_TOP - 32, LANE_TOP - 16];
+    const rowEnds = rowYs.map(() => -Infinity);
+    for (const ev of state.events) {
+      if (ev.type !== 'ROUND_START' && ev.type !== 'GAME_END') continue;
+      const x = xOf(ev.offset_s);
+      const label = ev.type === 'ROUND_START' ? `R${ev.ev.round_id}` : 'END';
+      const approxWidth = label.length * 7 + 14;
+      let row = rowYs.length - 1;
+      for (let r = 0; r < rowYs.length; r++) {
+        if (x >= rowEnds[r]) { row = r; break; }
+      }
+      rowEnds[row] = x + approxWidth;
+      const tick = document.createElementNS(NS, 'line');
+      tick.setAttribute('x1', x); tick.setAttribute('y1', rowYs[row] + 3);
+      tick.setAttribute('x2', x); tick.setAttribute('y2', H - 12);
+      tick.setAttribute('stroke', '#a18bff');
+      tick.setAttribute('stroke-opacity', '0.45');
+      tick.setAttribute('stroke-dasharray', '3,3');
+      svg.appendChild(tick);
+      const t = document.createElementNS(NS, 'text');
+      t.setAttribute('x', x + 4); t.setAttribute('y', rowYs[row]);
+      t.setAttribute('font-family', "'JetBrains Mono', monospace");
+      t.setAttribute('font-size', '11');
+      t.setAttribute('fill', '#a18bff');
+      t.setAttribute('font-weight', '700');
+      t.textContent = label;
+      svg.appendChild(t);
+    }
+
+    // Event dots. First collect the drawable ones (PHASE/ROUND markers
+    // and FLAG_SUBMITTED render separately), then de-overlap: events that
+    // land on the same lane at (nearly) the same x — e.g. AGENT_INSTALLED
+    // + DRY_RUN_START at one instant, the 2 CONTAINER_READY per team, the
+    // 2 FLAG_PLANTED on flag_server — get fanned out vertically within the
+    // lane row so each stays hoverable instead of hiding under the next.
+    const drawable = [];
+    for (const e of state.events) {
+      if (!VISIBLE[e.category]) continue;
+      if (e.type === 'PHASE_CHANGE' || e.type === 'ROUND_START' ||
+          e.type === 'ROUND_STOP'  || e.type === 'GAME_END') continue;
+      if (e.type === 'FLAG_SUBMITTED') continue;
+      const cx = xOf(e.offset_s);
+      const cy0 = yOf(e.actor);
+      if (cy0 == null) continue;
+      drawable.push({ e, cx, cy0, cy: cy0 });
+    }
+    // Group by (lane, ~4px x-bucket); stagger each group around its lane
+    // center, capping the spread so dots stay inside the 36px row.
+    const groups = {};
+    for (const d of drawable) {
+      const key = `${d.cy0}@${Math.round(d.cx / 4)}`;
+      (groups[key] = groups[key] || []).push(d);
+    }
+    for (const key in groups) {
+      const g = groups[key];
+      if (g.length < 2) continue;
+      const step = Math.min(7, 26 / (g.length - 1));
+      g.forEach((d, k) => { d.cy = d.cy0 + (k - (g.length - 1) / 2) * step; });
+    }
+
+    for (const d of drawable) {
+      const e = d.e;
+      const col = COLOR[e.category] || '#888';
+      // Off-cadence health probes (attack-entry / post-restart one-shots)
+      // render as a diamond, distinct from the periodic circles.
+      const oneShot = e.type === 'SERVICE_HEALTH_CHECK'
+        && e.ev.payload && e.ev.payload.trigger && e.ev.payload.trigger !== 'periodic';
+      let mark;
+      if (oneShot) {
+        const r = 5;
+        mark = document.createElementNS(NS, 'polygon');
+        mark.setAttribute('points',
+          `${d.cx},${d.cy - r} ${d.cx + r},${d.cy} ${d.cx},${d.cy + r} ${d.cx - r},${d.cy}`);
+      } else {
+        mark = document.createElementNS(NS, 'circle');
+        mark.setAttribute('cx', d.cx);
+        mark.setAttribute('cy', d.cy);
+        mark.setAttribute('r', 4);
+      }
+      mark.setAttribute('fill', col);
+      mark.setAttribute('fill-opacity', oneShot ? '0.9' : '0.85');
+      mark.setAttribute('stroke', 'rgba(0,0,0,0.4)');
+      mark.setAttribute('stroke-width', '0.5');
+      mark.style.cursor = 'crosshair';
+      mark.addEventListener('mouseenter', evt => showTooltip(evt, e));
+      mark.addEventListener('mousemove',  evt => moveTooltip(evt));
+      mark.addEventListener('mouseleave', () => hideTooltip());
+      svg.appendChild(mark);
+    }
+
+    // FLAG_SUBMITTED as a two-lane interaction: a dot on the submitter
+    // team's lane + a dot on flag_server, joined by a connector. Verdict
+    // is the color — accepted = filled green, rejected = hollow red ring
+    // (so a wall of retries reads as rings, the wins as solid dots).
+    function flagDot(cx, cy, color, r, e, filled) {
+      const d = document.createElementNS(NS, 'circle');
+      d.setAttribute('cx', cx); d.setAttribute('cy', cy); d.setAttribute('r', r);
+      d.setAttribute('fill', filled ? color : 'none');
+      d.setAttribute('fill-opacity', '0.9');
+      d.setAttribute('stroke', color);
+      d.setAttribute('stroke-width', filled ? '0.5' : '1.5');
+      d.style.cursor = 'crosshair';
+      d.addEventListener('mouseenter', evt => showTooltip(evt, e));
+      d.addEventListener('mousemove',  evt => moveTooltip(evt));
+      d.addEventListener('mouseleave', () => hideTooltip());
+      return d;
+    }
+    if (VISIBLE['flag']) {
+      for (const e of state.events) {
+        if (e.type !== 'FLAG_SUBMITTED') continue;
+        const p = e.ev.payload || {};
+        const submitter = p.submitter_team_id || e.ev.team_id;
+        const yTeam = yOf(submitter);
+        const ySrv  = yOf('flag_server');
+        if (yTeam == null || ySrv == null) continue;
+        const x = xOf(e.offset_s);
+        const accepted = !!p.accepted;
+        const col = accepted ? '#82d97c' : '#ff6b6b';
+        const line = document.createElementNS(NS, 'line');
+        line.setAttribute('x1', x); line.setAttribute('y1', yTeam);
+        line.setAttribute('x2', x); line.setAttribute('y2', ySrv);
+        line.setAttribute('stroke', col);
+        line.setAttribute('stroke-opacity', accepted ? '0.55' : '0.30');
+        line.setAttribute('stroke-width', accepted ? '1.5' : '1');
+        if (!accepted) line.setAttribute('stroke-dasharray', '3,3');
+        svg.appendChild(line);
+        const r = accepted ? 5 : 3.5;
+        svg.appendChild(flagDot(x, yTeam, col, r, e, accepted));
+        svg.appendChild(flagDot(x, ySrv,  col, r, e, accepted));
+      }
+    }
+
+    // "now" marker — a moving vertical line at the current wall-clock
+    // position (live mode only). This is the thing that visibly advances
+    // between events.
+    if (state.live && state.t0 != null) {
+      const xNow = xOf(nowOffset);
+      const nowLine = document.createElementNS(NS, 'line');
+      nowLine.setAttribute('x1', xNow); nowLine.setAttribute('y1', LANE_TOP - 8);
+      nowLine.setAttribute('x2', xNow); nowLine.setAttribute('y2', H - 12);
+      nowLine.setAttribute('stroke', '#e0e0e0');
+      nowLine.setAttribute('stroke-opacity', '0.5');
+      nowLine.setAttribute('stroke-width', '1');
+      svg.appendChild(nowLine);
+      const nowLbl = document.createElementNS(NS, 'text');
+      nowLbl.setAttribute('x', xNow - 3); nowLbl.setAttribute('y', LANE_TOP - 2);
+      nowLbl.setAttribute('text-anchor', 'end');
+      nowLbl.setAttribute('font-family', "'JetBrains Mono', monospace");
+      nowLbl.setAttribute('font-size', '9');
+      nowLbl.setAttribute('fill', '#e0e0e0');
+      nowLbl.textContent = 'now';
+      svg.appendChild(nowLbl);
+    }
+
+    row.appendChild(svg);
+    TIMELINE.appendChild(row);
+
+    if (FOLLOW) {
+      TIMELINE.scrollLeft = TIMELINE.scrollWidth;
+    } else {
+      TIMELINE.scrollLeft = prevScroll;
+    }
+  }
+
+  function showTooltip(evt, e) {
+    const colored = COLOR[e.category] || '#fff';
+    TOOLTIP.innerHTML = `
+      <span class="tt-cat" style="color:${colored}">[${e.category}]</span>
+      <span style="color:#fff;font-weight:600">${escapeHtml(e.type)}</span>
+      <span class="tt-ts"> · t+${e.offset_s.toFixed(2)}s</span>
+      <span class="tt-actor">${escapeHtml(e.actor)}</span>
+      <span class="tt-meta">${escapeHtml(e.msg || '')}</span>
+    `;
+    TOOLTIP.classList.add('show');
+    moveTooltip(evt);
+  }
+  function moveTooltip(ev) {
+    const pad = 14;
+    let x = ev.clientX + pad, y = ev.clientY + pad;
+    const r = TOOLTIP.getBoundingClientRect();
+    if (x + r.width  > window.innerWidth)  x = ev.clientX - r.width  - pad;
+    if (y + r.height > window.innerHeight) y = ev.clientY - r.height - pad;
+    TOOLTIP.style.left = x + 'px';
+    TOOLTIP.style.top  = y + 'px';
+  }
+  function hideTooltip() { TOOLTIP.classList.remove('show'); }
+
+  // ── controls (category toggles) ──────────────────────────────
+  const CONTROLS = $('controls');
+  function buildControls() {
+    CONTROLS.innerHTML = '';
+    for (const c of CATEGORIES) {
+      const count = state.events.reduce((n, e) => n + (e.category === c.key ? 1 : 0), 0);
+      const el = document.createElement('div');
+      el.className = 'cat-toggle' + (VISIBLE[c.key] ? '' : ' off');
+      el.innerHTML = `<span class="swatch" style="background:${c.color}"></span>${c.label} (${count})`;
+      el.addEventListener('click', () => {
+        VISIBLE[c.key] = !VISIBLE[c.key];
+        el.classList.toggle('off', !VISIBLE[c.key]);
+        render();
+      });
+      CONTROLS.appendChild(el);
+    }
+    // Lane-summary mirrors the discovered lanes so the footer stays
+    // honest about which actors the timeline is actually showing.
+    const summary = $('lane-summary');
+    if (summary) summary.textContent = actors().join(' · ');
+  }
+
+  const zoom = $('zoom'), zoomVal = $('zoom-val');
+  zoom.addEventListener('input', () => {
+    DENSITY = Number(zoom.value);
+    zoomVal.textContent = DENSITY;
+    render();
+  });
+  $('follow').addEventListener('change', e => { FOLLOW = e.target.checked; });
+
+  // ── live WS feed + snapshot mode ────────────────────────────
+  async function backfill() {
+    try {
+      const res = await fetch('/game/events');
+      if (!res.ok) return;
+      const body = await res.json();
+      // /game/events returns {events: [...], cursor: int} — replay just
+      // the events list. Cursor isn't useful here because the WS keeps
+      // us live after the initial drain.
+      const arr = Array.isArray(body) ? body : (body.events || []);
+      let added = 0;
+      for (const ev of arr) if (ingest(ev)) added++;
+      if (added) { buildControls(); render(); }
+    } catch (e) { /* best-effort */ }
+  }
+
+  function wsUrl() {
+    const params = new URLSearchParams(location.search);
+    if (params.has('ws')) return params.get('ws');
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${location.host}/events/stream`;
+  }
+
+  let backoff = 500;
+  function connect() {
+    const conn = $('conn');
+    conn.dataset.state = 'trying';
+    conn.querySelector('.text').textContent = 'connecting…';
+
+    let ws;
+    try { ws = new WebSocket(wsUrl()); }
+    catch (e) { scheduleReconnect(); return; }
+
+    ws.onopen = () => {
+      backoff = 500;
+      conn.dataset.state = 'ok';
+      conn.querySelector('.text').textContent = 'connected';
+    };
+    ws.onmessage = (m) => {
+      try {
+        const ev = JSON.parse(m.data);
+        if (ingest(ev)) { buildControls(); render(); }
+      } catch (e) {}
+    };
+    ws.onclose = () => {
+      conn.dataset.state = 'lost';
+      conn.querySelector('.text').textContent = 'disconnected — reconnecting';
+      scheduleReconnect();
+    };
+    ws.onerror = () => { try { ws.close(); } catch (e) {} };
+  }
+  function scheduleReconnect() {
+    setTimeout(connect, backoff);
+    backoff = Math.min(backoff * 2, 30000);
+  }
+
+  // ── agent transcripts (below the timeline) ──────────────────
+  // Fetched from /game/agents (parsed stream-json artifacts), polled
+  // every few seconds. Transcripts are written whole at each phase end,
+  // so we only re-render when the data signature changes — that keeps a
+  // poll from collapsing any "show full" the viewer has expanded.
+  const KIND_ICON = {
+    system: '⚙', thinking: '🧠', text: '💬', tool_use: '🔧', tool_result: '↩',
+    chunk_boundary: '⟳',
+  };
+  const KIND_CLASS = {
+    system: 'kind-system', thinking: 'kind-thinking', text: 'kind-text',
+    tool_use: 'kind-tool-use', tool_result: 'kind-tool-result',
+    chunk_boundary: 'kind-chunk-boundary',
+  };
+  let transcriptSig = null;
+
+  function renderCard(ae) {
+    const card = document.createElement('div');
+    card.className = `card ${KIND_CLASS[ae.kind] || ''}${ae.is_error ? ' is-error' : ''}`;
+    let html = `
+      <div class="card-head">
+        <span class="icon">${KIND_ICON[ae.kind] || '•'}</span>
+        <span class="kind">${escapeHtml(ae.kind)}</span>
+        <span class="title">${escapeHtml(ae.title)}</span>
+      </div>`;
+    // Long bodies + structured kinds collapse into a nested <details>.
+    const hasBody = (ae.body && ae.body.length > (ae.title || '').length + 4)
+      || ['system', 'tool_use', 'tool_result'].includes(ae.kind);
+    if (hasBody) {
+      html += `<details class="card-body"><summary>show full</summary>`
+            + `<pre>${escapeHtml(ae.body)}</pre></details>`;
+    }
+    card.innerHTML = html;
+    return card;
+  }
+
+  function renderTranscripts(transcripts) {
+    const section = $('transcripts');
+    const body = $('transcripts-body');
+    if (!transcripts || !transcripts.length) { section.hidden = true; return; }
+    section.hidden = false;
+
+    const byTeam = {};
+    for (const t of transcripts) (byTeam[t.team_id] = byTeam[t.team_id] || []).push(t);
+
+    let totalTokIn = 0, totalTokCached = 0, totalTokOut = 0;
+    body.innerHTML = '';
+    for (const team of Object.keys(byTeam).sort()) {
+      const wrap = document.createElement('div');
+      wrap.className = 'transcript-team';
+      const name = document.createElement('div');
+      name.className = 'transcript-team-name';
+      name.textContent = team;
+      name.style.color = colorForActor(team);
+      wrap.appendChild(name);
+
+      for (const tr of byTeam[team]) {
+        const s = tr.stats;
+        const cached = s.tokens_cached || 0;
+        totalTokIn += s.tokens_in; totalTokCached += cached; totalTokOut += s.tokens_out;
+        const det = document.createElement('details');
+        det.className = 'transcript-host';
+        det.open = true;
+        // One merged trajectory per team (phase "merged"); older shapes keep
+        // their per-chunk / per-round label.
+        const label = tr.phase === 'merged'
+          ? `full trajectory${tr.chunks > 1 ? ` · ${tr.chunks} chunks` : ''}`
+          : (tr.phase.startsWith('async-') ? escapeHtml(tr.phase) : `R${tr.round_id} · ${escapeHtml(tr.phase)}`);
+        det.innerHTML = `
+          <summary>
+            <span class="host-name">${label}</span>
+            <span class="host-stats">${s.events} events · ${s.tools} tools `
+            + `(${escapeHtml(s.tools_breakdown)}) · ${s.errors} err · `
+            + `${s.tokens_in.toLocaleString()} in / ${cached.toLocaleString()} cached / ${s.tokens_out.toLocaleString()} out tok</span>
+          </summary>
+          <div class="cards"></div>`;
+        const cards = det.querySelector('.cards');
+        for (const ae of tr.events) cards.appendChild(renderCard(ae));
+        wrap.appendChild(det);
+      }
+      body.appendChild(wrap);
+    }
+    $('transcripts-sub').textContent =
+      `${transcripts.length} trajectory(ies) · ${totalTokIn.toLocaleString()} in / `
+      + `${totalTokCached.toLocaleString()} cached / ${totalTokOut.toLocaleString()} out tokens`;
+  }
+
+  function signatureOf(transcripts) {
+    // Cheap content signature: which transcripts exist + their event
+    // counts. Changes only when a new phase transcript lands.
+    return transcripts
+      .map(t => `${t.team_id}/${t.round_id}/${t.phase}:${t.stats.events}`)
+      .join(',');
+  }
+
+  async function fetchTranscripts() {
+    try {
+      const res = await fetch('/game/agents');
+      if (!res.ok) return;
+      const body = await res.json();
+      const transcripts = body.transcripts || [];
+      const sig = signatureOf(transcripts);
+      if (sig === transcriptSig) return;   // unchanged — don't clobber expands
+      transcriptSig = sig;
+      renderTranscripts(transcripts);
+    } catch (e) { /* best-effort */ }
+  }
+
+  // ── boot ─────────────────────────────────────────────────────
+  // ── Timeline metrics: token rate + tool-call latency on one clock ─────────
+  const MTX_SLOW = 10;
+  function mtxCol(k){ return k === 'team1' ? '#f0a63a' : '#2fd4c1'; }
+  function renderMetrics(teams){
+    const sect = $('metrics');
+    const keys = Object.keys(teams || {}).filter(k => teams[k] && teams[k].provider);
+    if (!keys.length) { sect.hidden = true; return; }
+    sect.hidden = false;
+    $('mtx-cards').innerHTML = keys.map(k => { const d = teams[k], s = d.summary;
+      return `<div class="mtx-card" style="border-left:3px solid ${mtxCol(k)}">${k} · ${d.provider}<br>` +
+        `<b>${(s.mean_tokens_per_s || 0).toFixed(1)}</b> tok/s · ${s.n_tool_calls} tools · ` +
+        `p90 ${(s.tool_latency_p90 || 0).toFixed(0)}s · src ${d.token_source}</div>`; }).join('');
+    const all = []; keys.forEach(k => { const d = teams[k];
+      (d.token_samples || []).forEach(x => all.push(x.start, x.end));
+      (d.tool_calls || []).forEach(x => all.push(x.start, x.end)); });
+    if (!all.length) { return; }
+    const t0 = Math.min(...all), t1 = Math.max(...all) || t0 + 1, W = 1000, padL = 8, padR = 8;
+    const x = t => padL + (t - t0) / (t1 - t0 || 1) * (W - padL - padR);
+    let rr = []; keys.forEach(k => (teams[k].token_samples || []).forEach(s => rr.push(s.tokens_per_s)));
+    rr.sort((a, b) => a - b);
+    const maxR = rr.length ? (rr[Math.floor(rr.length * 0.95)] || rr[rr.length - 1] || 1) : 1;
+    const RH = 54, GH = 16, GAP = 5, LAB = 14, BLK = LAB + RH + GAP + GH + 18;
+    let out = '', y = 6;
+    keys.forEach(k => { const d = teams[k], c = mtxCol(k), top = y + LAB, base = top + RH;
+      out += `<text x="${padL}" y="${y + 10}" font-size="10" fill="${c}" font-family="ui-monospace,monospace">${k} · ${d.provider}</text>`;
+      out += `<line x1="${padL}" y1="${base}" x2="${W - padR}" y2="${base}" stroke="#243040"/>`;
+      (d.token_samples || []).forEach(s => { const bx = x(s.start), bw = Math.max(0.6, x(s.end) - x(s.start)),
+        bh = Math.min(1, s.tokens_per_s / maxR) * RH;
+        out += `<rect x="${bx.toFixed(1)}" y="${(base - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="${c}" opacity="0.5"/>`; });
+      const gy = base + GAP;
+      out += `<rect x="${padL}" y="${gy}" width="${W - padL - padR}" height="${GH}" fill="#0d1117" stroke="#243040"/>`;
+      (d.tool_calls || []).forEach(tc => { const cx = x(tc.start), cw = Math.max(1, x(tc.end) - x(tc.start)),
+        slow = tc.latency_s >= MTX_SLOW;
+        const nm = String(tc.tool || '').replace(/[<>&]/g, '');
+        out += `<rect x="${cx.toFixed(1)}" y="${gy + 3}" width="${cw.toFixed(1)}" height="${GH - 6}" rx="1.5" ` +
+          `fill="${slow ? '#f2564b' : c}" opacity="${slow ? 0.9 : 0.55}"><title>${nm} ${tc.latency_s.toFixed(1)}s</title></rect>`; });
+      y += BLK; });
+    out += `<line id="mtx-cross" x1="0" y1="4" x2="0" y2="${y}" stroke="#c9d4e0" stroke-width="1" opacity="0"/>`;
+    const svg = $('mtx-chart'); svg.setAttribute('viewBox', `0 0 ${W} ${y + 4}`); svg.innerHTML = out;
+    mtxR = { keys, teams, t0, t1, W, padL, padR };   // lookup state for the hover readout
+    mtxBindHover(svg);
+    $('mtx-sub').textContent = keys.map(k => teams[k].provider + ' ' +
+      (teams[k].token_samples || []).length + ' llm / ' + teams[k].tool_calls.length + ' tools').join(' · ') +
+      ' · token rate from api-router';
+  }
+  // Crosshair + follow-tooltip: hover the chart to read, at that instant, the time
+  // and each team's token rate + the tool it's running. Bound once; reads mtxR,
+  // which renderMetrics refreshes every poll.
+  let mtxR = null, mtxHoverBound = false;
+  const mtxClock = t => new Date(t * 1000).toISOString().substr(11, 8);
+  const mtxAt = (arr, t) => (arr || []).find(s => t >= s.start && t <= s.end) || null;
+  function mtxBindHover(svg){
+    if (mtxHoverBound) return; mtxHoverBound = true;
+    const tip = $('mtx-tip');
+    svg.addEventListener('mousemove', evt => {
+      if (!mtxR) return;
+      const pt = svg.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY;
+      const { keys, teams, t0, t1, W, padL, padR } = mtxR;
+      let sx = Math.max(padL, Math.min(W - padR, pt.matrixTransform(svg.getScreenCTM().inverse()).x));
+      const t = t0 + (sx - padL) / (W - padL - padR) * (t1 - t0);
+      const cx = svg.querySelector('#mtx-cross');
+      if (cx) { cx.setAttribute('x1', sx); cx.setAttribute('x2', sx); cx.setAttribute('opacity', '0.35'); }
+      let rows = `<div class="tt">${mtxClock(t)}</div>`;
+      for (const k of keys) { const d = teams[k];
+        const ts = mtxAt(d.token_samples, t), tc = mtxAt(d.tool_calls, t);
+        const rate = ts ? ts.tokens_per_s.toFixed(0) + ' tok/s' : (tc ? '(tool)' : '—');
+        const tool = tc ? `<span class="nm">· ${String(tc.tool || '').replace(/[<>&]/g, '')} ${tc.latency_s.toFixed(1)}s</span>` : '';
+        rows += `<div class="row"><span class="sw" style="background:${mtxCol(k)}"></span><b>${rate}</b> ${tool}</div>`; }
+      tip.innerHTML = rows; tip.style.opacity = '1';
+      let tx = evt.clientX + 14; if (tx + tip.offsetWidth > window.innerWidth - 8) tx = evt.clientX - tip.offsetWidth - 14;
+      tip.style.left = tx + 'px'; tip.style.top = (evt.clientY + 14) + 'px';
+    });
+    svg.addEventListener('mouseleave', () => {
+      tip.style.opacity = '0';
+      const cx = svg.querySelector('#mtx-cross'); if (cx) cx.setAttribute('opacity', '0');
+    });
+  }
+  async function fetchMetrics(){
+    try { const r = await fetch('/game/metrics'); if (!r.ok) return;
+      const j = await r.json(); renderMetrics(j.teams || {}); } catch (e) {}
+  }
+
+  // Defer until DOMContentLoaded so any later <script> tags (notably the
+  // INITIAL_EVENTS block panel_snapshot.py injects right before the
+  // closing body tag) have finished executing.
+  document.addEventListener('DOMContentLoaded', () => {
+    buildControls();
+    render();
+    window.addEventListener('resize', render);
+
+    if (Array.isArray(window.INITIAL_EVENTS)) {
+      const conn = $('conn');
+      conn.dataset.state = 'snapshot';
+      conn.querySelector('.text').textContent = 'snapshot';
+      for (const ev of window.INITIAL_EVENTS) ingest(ev);
+      buildControls(); render();
+      // Offline snapshots may inline transcripts + metrics; render them if present.
+      if (Array.isArray(window.INITIAL_TRANSCRIPTS)) {
+        renderTranscripts(window.INITIAL_TRANSCRIPTS);
+      }
+      if (window.INITIAL_METRICS) {
+        renderMetrics(window.INITIAL_METRICS);
+      }
+    } else {
+      state.live = true;
+      backfill().then(connect);
+      // Agent transcripts land at phase end — poll the artifact-backed
+      // endpoint rather than riding the event stream.
+      fetchTranscripts();
+      setInterval(fetchTranscripts, 5000);
+      fetchMetrics();
+      setInterval(fetchMetrics, 5000);
+      // Live tail: advance the time axis ~4×/s even with no new events, so
+      // "now" keeps moving. Gated on FOLLOW so it never yanks a viewer who
+      // has unchecked follow to scroll back and inspect history.
+      setInterval(() => { if (FOLLOW && !hoveringTimeline) render(); }, 250);
+    }
+  });
+</script>
+</body>
+</html>

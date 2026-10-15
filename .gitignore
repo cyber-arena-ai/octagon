@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+runs/
+.env
+vendor/
+apirouter-data/
+apirouter-logs/
+labels/
+# generated visualization artifacts; keep only the tracked source
+vis/*
+!vis/__init__.py
+!vis/topology.py
+!vis/topology.html
+
+reviews/*

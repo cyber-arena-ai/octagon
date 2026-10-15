@@ -1,0 +1,120 @@
+# apirouter — the one config template. Copy it to your working dir and edit:
+#   docker:  mkdir -p apirouter-data && cp apirouter/config.example.yaml apirouter-data/config.yaml
+#            docker run ... -v "$PWD/apirouter-data:/data" cyberarena/api-router
+#   local:   cp apirouter/config.example.yaml apirouter-data/config.yaml
+#            APIROUTER_CONFIG=apirouter-data/config.yaml .venv/bin/python -m apirouter
+# The copy (apirouter-data/) is gitignored, so secrets you inline here stay local.
+# ${ENV} placeholders also work if you'd rather inject via the environment.
+
+listen:
+  gateway: "0.0.0.0:8080"   # reverse-passthrough metering gateway (clients point base_url here)
+  proxy: "0.0.0.0:3128"     # HTTP_PROXY / HTTPS_PROXY egress firewall
+
+# Optional gameserver relay. When `base_url` is set, the router also runs a
+# NARROW reverse proxy that forwards verbatim to that one upstream — the host
+# GameMgr app — so an isolated agent (internal net, no host route) can reach
+# MCP/REST. It is NOT a general host gateway: only `relay.base_url` is reachable.
+# Point the agent's CYBERARENA_PUBLIC_BASE_URL at this listener (via a logical
+# name). Omit the whole block to disable.
+# relay:
+#   listen: "0.0.0.0:8000"
+#   base_url: "http://host.docker.internal:8000"
+
+# Where requests go. TWO SPELLINGS, AND THEY ARE MUTUALLY EXCLUSIVE — declaring
+# `upstream:` alongside `upstreams:`/`routes:` is rejected at startup rather than
+# resolved by a precedence rule you'd have to remember.
+#
+# (a) Single provider — `upstream:` is the shorthand:
+upstream:
+  # Requests are forwarded verbatim to `base_url + <incoming path>`. Set this to
+  # the upstream HOST ROOT; the client supplies the version in its path
+  # (e.g. client base_url=http://api-router:8080/v1 -> path /v1/chat/completions
+  #  -> forwarded to https://app-us.ppapi.ai/v1/chat/completions).
+  base_url: "https://app-us.ppapi.ai"
+  # REQUIRED. The router forwards with THIS key (Authorization + x-api-key) and
+  # drops whatever the client sent — so the real key lives only in the router,
+  # never inside containers. The one genuine secret; keep it in the env.
+  #
+  # There is no keyless / "forward the client's own key" mode. What a client sends
+  # is a principal token the router minted for billing, not a provider credential,
+  # so an upstream with no key has nothing valid to forward with — and an agent that
+  # kept a real provider key could bill against it WITHOUT being metered.
+  api_key: "${UPSTREAM_API_KEY}"
+
+# (b) Several providers on separate keys — delete `upstream:` above and use these.
+# The upstream is chosen per request from the model name the CLIENT sent, and that
+# upstream's own key is injected on forward. Metering rows gain an `upstream` field
+# so you can see which provider each call was billed to. Every upstream needs a key.
+#
+# upstreams:
+#   anthropic:                                    # Claude on the official key
+#     base_url: "https://api.anthropic.com"
+#     api_key: "${API_ROUTER_KEY_ANTHROPIC}"
+#   ppapi:                                        # everything else via the reseller
+#     base_url: "https://app-us.ppapi.ai"
+#     api_key: "${API_ROUTER_KEY_PPAPI}"
+#
+# routes:
+#   default: ppapi          # a model matching no rule below (or a request with no
+#                           # model at all) goes here. REQUIRED when >1 upstream.
+#   by_model:               # fnmatch globs, tried in order — first match wins
+#     "claude-*": anthropic
+#     "gpt-*": ppapi
+#
+# Remember: the firewall below is separate. Add every upstream's host to
+# firewall.allow.domains or the forward proxy will still deny it.
+
+# Per-person cost attribution + spend caps. Each principal uses ITS token as the
+# API key; the router tags every metering row with `principal`, injects the real
+# upstream key on forward (so a person only holds their own token), and rejects
+# unknown tokens with 401. Optional `budget_usd` caps total spend — once reached,
+# further requests get 402 (soft cap: the request that crosses the line still
+# completes; spend is in-memory and resets on restart). Omit the list to fall
+# back to attribution by client_ip with no caps. Live spend: GET /usage.
+principals:
+  - { id: alice, token: "alice-token", budget_usd: 5.00 }   # replace tokens with real per-person secrets
+  - { id: bob,   token: "bob-token",   budget_usd: 5.00 }
+
+# USD per 1,000,000 tokens, keyed by the model name the CLIENT sends (no
+# translation, so it's whatever the client put in the request). This is the only
+# cost source; absent model -> cost_usd is null (request still works).
+#
+# `cache_read` / `cache_write` are optional and default to 0.0. Set them for any
+# model where the upstream reports cache_read_input_tokens /
+# cache_creation_input_tokens (Anthropic-style prompt caching) — cache traffic is
+# often the majority of real spend, and an {input, output}-only entry silently
+# bills it at $0.
+pricing:
+  deepseek-v4-flash: { input: 0.0, output: 0.0 }   # <-- set your real per-1M rates
+  claude-opus-4-8: { input: 0.0, output: 0.0, cache_read: 0.0, cache_write: 0.0 }   # <-- set your real per-1M rates
+
+# Defensive workarounds for flaky "OpenAI-compatible" upstreams (see
+# docs/api_router_plan_v1.md §Compat). All opt-in — set everything off/empty for
+# strict verbatim passthrough. NOTE: these mean the proxy is no longer byte-exact.
+compat:
+  drop_empty_content: true            # #1: drop assistant content:"" when tool_calls present
+  drop_params: ["reasoning_effort"]   # #3: strip params the upstream rejects
+  json_schema_fallback: true          # #4: on 400, retry with response_format=json_object
+  retry_on_5xx: 2                     # #10: retries on 429/502/503/504 + transport errors
+  retry_backoff_ms: 500
+  max_request_bytes: 5242880          # #5/#6: reject bodies > ~5 MiB with 413 (0 = off)
+  # #11: clamp client max_tokens per upstream model. Claude Code defaults to
+  # ~64k (Claude-model assumption); some OpenAI models cap lower and 400 out.
+  # Per-model `{model: cap}`; omit / empty = no clamping.
+  clamp_max_tokens:
+    gpt-4o-mini: 16384
+    gpt-4o: 16384
+
+firewall:
+  default: deny           # deny | allow — applied when nothing matches
+  allow:
+    domains: ["api.anthropic.com", "*.ppapi.ai", "registry.npmjs.org"]
+    cidrs: ["10.0.0.0/8"]
+  deny:
+    domains: []
+
+metering:
+  # Relative path → resolved next to THIS config file, so config + log share one
+  # dir (docker: /data, local: apirouter-data/). Live per-person spend: GET /usage.
+  jsonl_path: "usage.jsonl"
+  stdout: true

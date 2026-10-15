@@ -1,0 +1,146 @@
+# v3 config — ISOLATED ico run, ASYNC mode, Qwen Code on BOTH teams.
+#
+# Same v3 topology as config/game_ico_v3_isolated_async_mixed.yaml (agents on
+# internal-only nets, LLM via api-router, MCP via mcp-gateway, flag-service +
+# health-poller over SSH). Only the agents differ: both teams run the Qwen Code
+# CLI (gemini-cli fork) pointed at the api-router over an OpenAI-compatible
+# (Chat Completions) endpoint.
+#
+# Requires in .env: API_ROUTER_KEY, CYBERARENA_FACILITY_TOKEN.
+# Build the images first (docs/RUN_SAMPLE_CHALLENGE.md): cyberarena/{agent-claude, agent-codex,
+#   api-router-cfg, mcp-gateway, flag-service, health-poller} + cyberarena/chal-nautilus-ico.
+#
+# Model note: the models below (`gpt-5.4-mini` / `glm-5.2`) must be served by the api-router upstream (or add
+# an upstreams:/routes: block routing qwen-* to a qwen-capable provider). Qwen's
+# non-interactive auth needs a NON-EMPTY model + the OpenAI base_url — the adapter
+# exports OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL from the fields below.
+
+teams:
+  - id: team1
+    dev: team1_dev
+    prod: team1_prod
+    token: dev-team1-token
+    agent:
+      provider: qwen
+      cli: qwen
+      model: gpt-5.4-mini
+      api_key: cad-team1     # principal token — plain per-team label, distinct
+      base_url: http://api-router:8080/v1   # OpenAI Chat Completions: {base_url}/chat/completions
+  - id: team2
+    dev: team2_dev
+    prod: team2_prod
+    token: dev-team2-token
+    agent:
+      provider: qwen
+      cli: qwen
+      model: glm-5.2
+      api_key: cad-team2
+      base_url: http://api-router:8080/v1
+
+nodes:
+  - id: api-router
+    image: cyberarena/api-router-cfg
+    networks: [team1_net, team2_net, egress_net]
+    extra_hosts: { host.docker.internal: host-gateway }
+    env:
+      UPSTREAM_API_KEY: ${API_ROUTER_KEY}
+
+  - id: mcp-gateway
+    image: cyberarena/mcp-gateway
+    networks: [team1_net, team2_net, egress_net]
+    extra_hosts: { host.docker.internal: host-gateway }
+    env:
+      CYBERARENA_GM_BASE_URL: http://host.docker.internal:8000
+      CYBERARENA_FLAG_SERVICE_URL: http://flag_service:8080
+      CYBERARENA_MCP_ALLOWED_HOSTS: "mcp-gateway:*"
+
+  - id: flag_service
+    image: cyberarena/flag-service
+    networks: [team1_net, team2_net, egress_net]
+    ports: ["127.0.0.1:9001:8080"]
+    extra_hosts: { host.docker.internal: host-gateway }
+    env:
+      CYBERARENA_GM_BASE_URL: http://host.docker.internal:8000
+      CYBERARENA_FACILITY_TOKEN: ${CYBERARENA_FACILITY_TOKEN}
+      CYBERARENA_SSH_KEY_PATH: /keys/facility
+
+  - id: health_poller
+    image: cyberarena/health-poller
+    networks: [team1_net, team2_net, egress_net]
+    ports: ["127.0.0.1:9201:8080"]
+    extra_hosts: { host.docker.internal: host-gateway }
+    env:
+      CYBERARENA_GM_BASE_URL: http://host.docker.internal:8000
+      CYBERARENA_FACILITY_TOKEN: ${CYBERARENA_FACILITY_TOKEN}
+      CYBERARENA_SSH_KEY_PATH: /keys/facility
+
+  - id: team1_dev
+    image: cyberarena/agent-qwen
+    networks: [team1_net, attack_net]
+    extra_hosts: { host.docker.internal: host-gateway }
+    env:
+      HTTPS_PROXY: "http://api-router:3128"
+      HTTP_PROXY:  "http://api-router:3128"
+      https_proxy: "http://api-router:3128"
+      http_proxy:  "http://api-router:3128"
+      NO_PROXY:    "127.0.0.1,localhost,api-router,mcp-gateway,flag_service,host.docker.internal,team1_prod,team2_prod"
+      no_proxy:    "127.0.0.1,localhost,api-router,mcp-gateway,flag_service,host.docker.internal,team1_prod,team2_prod"
+
+  - id: team1_prod
+    image: cyberarena/chal-nautilus-ico:366520c0cc43
+    networks: [team1_net, attack_net]
+    ports: ["127.0.0.1:8001:4265"]
+
+  - id: team2_dev
+    image: cyberarena/agent-qwen
+    networks: [team2_net, attack_net]
+    extra_hosts: { host.docker.internal: host-gateway }
+    env:
+      HTTPS_PROXY: "http://api-router:3128"
+      HTTP_PROXY:  "http://api-router:3128"
+      https_proxy: "http://api-router:3128"
+      http_proxy:  "http://api-router:3128"
+      NO_PROXY:    "127.0.0.1,localhost,api-router,mcp-gateway,flag_service,host.docker.internal,team1_prod,team2_prod"
+      no_proxy:    "127.0.0.1,localhost,api-router,mcp-gateway,flag_service,host.docker.internal,team1_prod,team2_prod"
+
+  - id: team2_prod
+    image: cyberarena/chal-nautilus-ico:366520c0cc43
+    networks: [team2_net, attack_net]
+    ports: ["127.0.0.1:8002:4265"]
+
+networks:
+  team1_net:        { subnet: 10.1.0.0/24, internal: true }
+  team2_net:        { subnet: 10.2.0.0/24, internal: true }
+  attack_net:       { subnet: 10.11.0.0/24, internal: true }
+  egress_net:       { subnet: 10.99.0.0/24 }
+
+challenges:
+  - name: nautilus-ico
+    type: nautilus-ico
+    port: 4265
+    deploy_on: [team1, team2]
+
+flag_service:  { base_url: http://127.0.0.1:9001, container: flag_service }
+health_poller: { base_url: http://127.0.0.1:9201, container: health_poller }
+mcp_gateway:   { agent_url: http://mcp-gateway:8080 }
+
+api_router:
+  container: api-router
+  upstream_url: https://app-us.ppapi.ai
+  firewall:
+    default: deny
+    allow:
+      domains:
+        - "*.ppapi.ai"
+        - "api.anthropic.com"
+        - "registry.npmjs.org"     # qwen CLI npm install at game start
+      cidrs:
+        - "10.0.0.0/8"
+    deny:
+      domains: []
+      cidrs: []
+
+round_config:
+  mode: async
+  round_secs: 300
+  total_rounds: 5

@@ -1,0 +1,131 @@
+# v3 ISOLATED ico run, ASYNC (3 rounds × 3 min), CODEX vs CODEX.
+#
+# Same full v3 topology as game_ico_v3_isolated_async_mixed.yaml (agents on
+# internal-only nets; LLM via api-router egress proxy; MCP via the on-net
+# mcp-gateway; flag-service + health-poller plant/probe prod over SSH; GameMgr
+# on the HOST reached via host.docker.internal). Both teams run OpenAI Codex.
+#
+# Requires (export before start):
+#   CODEX_API_KEY_TEAM1, CODEX_API_KEY_TEAM2  - per-team Codex keys
+#   API_ROUTER_KEY                            - real upstream key (router injects)
+#   CYBERARENA_FACILITY_TOKEN                 - facility<->GameMgr auth (any string)
+# Build images first: cyberarena/{agent,api-router-cfg,mcp-gateway,flag-service,
+#   health-poller} + cyberarena/chal-nautilus-ico.
+#
+# codex keeps the /v1 suffix (CLI hits {base_url}/responses → apirouter forwards
+# verbatim to ppapi /v1/responses). gpt-5.4 replaced gpt-5.3-codex, which codex 0.146.0 dropped (ppapi routing unverified)
+# (gpt-5.4 returns 400/response_failed there).
+
+teams:
+  - id: team1
+    dev: team1_dev
+    prod: team1_prod
+    token: dev-team1-token
+    agent:
+      provider: codex
+      cli: codex exec
+      model: gpt-5.4
+      api_key: team1-token
+      base_url: http://api-router:8080/v1
+  - id: team2
+    dev: team2_dev
+    prod: team2_prod
+    token: dev-team2-token
+    agent:
+      provider: codex
+      cli: codex exec
+      model: gpt-5.4
+      api_key: team2-token
+      base_url: http://api-router:8080/v1
+
+nodes:
+  - id: api-router
+    image: cyberarena/api-router-cfg
+    networks: [team1_net, team2_net, egress_net]
+    extra_hosts: { host.docker.internal: host-gateway }
+    env:
+      UPSTREAM_API_KEY: ${API_ROUTER_KEY}
+
+  - id: mcp-gateway
+    image: cyberarena/mcp-gateway
+    networks: [team1_net, team2_net, egress_net]
+    extra_hosts: { host.docker.internal: host-gateway }
+    env:
+      CYBERARENA_GM_BASE_URL: http://host.docker.internal:8000
+      CYBERARENA_FLAG_SERVICE_URL: http://flag_service:8080
+      CYBERARENA_MCP_ALLOWED_HOSTS: "mcp-gateway:*"
+
+  - id: flag_service
+    image: cyberarena/flag-service
+    networks: [team1_net, team2_net, egress_net]
+    ports: ["127.0.0.1:9001:8080"]
+    extra_hosts: { host.docker.internal: host-gateway }
+    env:
+      CYBERARENA_GM_BASE_URL: http://host.docker.internal:8000
+      CYBERARENA_FACILITY_TOKEN: ${CYBERARENA_FACILITY_TOKEN}
+      CYBERARENA_SSH_KEY_PATH: /keys/facility
+
+  - id: health_poller
+    image: cyberarena/health-poller
+    networks: [team1_net, team2_net, egress_net]
+    ports: ["127.0.0.1:9201:8080"]
+    extra_hosts: { host.docker.internal: host-gateway }
+    env:
+      CYBERARENA_GM_BASE_URL: http://host.docker.internal:8000
+      CYBERARENA_FACILITY_TOKEN: ${CYBERARENA_FACILITY_TOKEN}
+      CYBERARENA_SSH_KEY_PATH: /keys/facility
+
+  - id: team1_dev
+    image: cyberarena/agent-codex
+    networks: [team1_net, attack_net]
+    extra_hosts: { host.docker.internal: host-gateway }
+    env:
+      HTTPS_PROXY: "http://api-router:3128"
+      HTTP_PROXY:  "http://api-router:3128"
+      https_proxy: "http://api-router:3128"
+      http_proxy:  "http://api-router:3128"
+      NO_PROXY:    "127.0.0.1,localhost,api-router,mcp-gateway,flag_service,host.docker.internal,team1_prod,team2_prod"
+      no_proxy:    "127.0.0.1,localhost,api-router,mcp-gateway,flag_service,host.docker.internal,team1_prod,team2_prod"
+
+  - id: team1_prod
+    image: cyberarena/chal-nautilus-ico:366520c0cc43
+    networks: [team1_net, attack_net]
+    ports: ["127.0.0.1:8001:4265"]
+
+  - id: team2_dev
+    image: cyberarena/agent-codex
+    networks: [team2_net, attack_net]
+    extra_hosts: { host.docker.internal: host-gateway }
+    env:
+      HTTPS_PROXY: "http://api-router:3128"
+      HTTP_PROXY:  "http://api-router:3128"
+      https_proxy: "http://api-router:3128"
+      http_proxy:  "http://api-router:3128"
+      NO_PROXY:    "127.0.0.1,localhost,api-router,mcp-gateway,flag_service,host.docker.internal,team1_prod,team2_prod"
+      no_proxy:    "127.0.0.1,localhost,api-router,mcp-gateway,flag_service,host.docker.internal,team1_prod,team2_prod"
+
+  - id: team2_prod
+    image: cyberarena/chal-nautilus-ico:366520c0cc43
+    networks: [team2_net, attack_net]
+    ports: ["127.0.0.1:8002:4265"]
+
+networks:
+  team1_net:        { subnet: 10.1.0.0/24, internal: true }
+  team2_net:        { subnet: 10.2.0.0/24, internal: true }
+  attack_net:       { subnet: 10.11.0.0/24, internal: true }
+  egress_net:       { subnet: 10.99.0.0/24 }
+
+challenges:
+  - name: nautilus-ico
+    type: nautilus-ico
+    port: 4265
+    deploy_on: [team1, team2]
+
+flag_service:  { base_url: http://127.0.0.1:9001, container: flag_service }
+health_poller: { base_url: http://127.0.0.1:9201, container: health_poller }
+mcp_gateway:   { agent_url: http://mcp-gateway:8080 }
+
+round_config:
+  mode: async
+  round_secs: 180      # 3 min flag-rotation tick; agents run continuously
+  total_rounds: 3

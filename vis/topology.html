@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>cyber-arena · live topology</title>
+<!-- cytoscape from CDN (host browser has internet; falls back to a notice if blocked) -->
+<script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #0e1116; color: #d7dde5;
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  /* Flex column so the graph always sits BELOW the bar — the bar can wrap (long
+     legend on a narrow window) without overlapping/clipping the graph. */
+  body { display: flex; flex-direction: column; }
+  #bar { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center;
+    gap: 8px 14px; padding: 9px 16px; background: #161b22;
+    border-bottom: 1px solid #2b333d; }
+  #bar b { color: #e6edf3; letter-spacing: .3px; font-size: 14px; }
+  #bar .dim { color: #8b949e; }
+  /* LIVE vs intended-topology indicator */
+  .badge { padding: 2px 10px; border-radius: 999px; font-weight: 600;
+    font-size: 12px; border: 1px solid transparent; white-space: nowrap; }
+  .badge.live     { color: #3fb950; border-color: #3fb95066; background: #3fb95018; }
+  .badge.intended { color: #d29922; border-color: #d2992255; background: #d2992214; }
+  #err { color: #ff7b72; }
+  .legend { margin-left: auto; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  #cy { flex: 1 1 auto; min-height: 0; }
+  #fallback { display: none; padding: 60px; text-align: center; color: #ff7b72; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <b>cyber-arena</b>
+  <span id="mode" class="badge intended">topology</span>
+  <span id="meta" class="dim"></span>
+  <span id="err"></span>
+  <div class="legend">
+    <span>🌐 network &nbsp;<i style="display:inline-block;width:16px;height:11px;background:#1f6feb33;border:2px solid #1f6feb;border-radius:50%"></i></span>
+    <span>📦 container &nbsp;<i style="display:inline-block;width:14px;height:10px;background:#3fb95033;border:2px solid #3fb950;border-radius:3px"></i></span>
+    <span>🖥️ host &nbsp;<i style="display:inline-block;width:14px;height:10px;background:#39c5cf33;border:2px double #39c5cf"></i></span>
+    <span class="dim">|</span>
+    <span><i class="dot" style="background:#3fb950"></i>running</span>
+    <span><i class="dot" style="background:#d29922"></i>exited</span>
+    <span><i class="dot" style="background:#6e7681"></i>absent</span>
+    <span><i style="display:inline-block;width:14px;height:10px;background:#f8514933;border:2px dashed #f85149"></i>internal&nbsp;(no egress)</span>
+  </div>
+</div>
+<div id="cy"></div>
+<div id="fallback">Couldn't load cytoscape from the CDN. The host browser needs internet for the
+graph library (the arena containers stay isolated — only this page fetches it).</div>
+
+<!-- SNAPSHOT_DATA -->  <!-- `python -m vis.topology --once` inlines window.__SNAPSHOT__ here -->
+<script>
+const POLL_MS = 2000;
+let cy = null, lastSig = "";
+
+const STATUS_COLOR = s =>
+  s === "running" ? "#3fb950" :
+  (s === "exited" || s === "created" || s === "paused") ? "#d29922" :
+  "#6e7681"; // absent / unknown
+
+function portLabel(ports) {
+  if (!ports || !ports.length) return "";
+  return ports.map(p => {
+    const hp = p.host ? `→${p.host}` : "";
+    const app = p.app ? ` (${p.app})` : "";
+    return `:${p.container}${hp}${app}`;
+  }).join("\n");
+}
+
+// Cluster nodes/networks by ownership into compound parent boxes. Anything not
+// team1/team2 (api-router, mcp-gateway, flag/health, shared nets) is facilities.
+const CLUSTERS = {
+  team1:      { label: "TEAM 1",              color: "#d2a8ff" },
+  team2:      { label: "TEAM 2",              color: "#ffa657" },
+  facilities: { label: "FACILITIES / SHARED", color: "#8b949e" },
+  host:       { label: "HOST",                color: "#39c5cf" },
+};
+function clusterOf(name) {
+  if (name.includes("team1")) return "team1";
+  if (name.includes("team2")) return "team2";
+  return "facilities";
+}
+
+// A network belongs to a cluster only if EVERY node/host attached to it is in
+// that one cluster; otherwise it bridges clusters and floats outside them.
+function networkClusters(t, name) {
+  const cs = new Set();
+  for (const e of t.edges) if (e.network === name) cs.add(clusterOf(e.node));
+  for (const e of (t.host_edges || [])) if (e.network === name) cs.add("host");
+  return cs;
+}
+
+function toElements(t) {
+  const els = [];
+  const used = new Set();
+  // NODES drive the clusters — only containers + host live inside a cluster box.
+  for (const node of t.nodes) {
+    const g = clusterOf(node.id); used.add(g);
+    const img = (node.image || "").replace(/^cyberarena\//, "");
+    const pl = portLabel(node.ports);
+    const hc = node.health ? `  [${node.health}]` : "";
+    const label = `📦 ${node.id}\n${img}${hc}${pl ? "\n" + pl : ""}`;
+    els.push({ data: { id: `node:${node.id}`, kind: "container", parent: `grp:${g}`, label,
+      status: node.status, color: STATUS_COLOR(node.status), live: node.live, intended: node.intended } });
+  }
+  for (const h of (t.hosts || [])) {
+    const g = "host"; used.add(g);          // host process gets its own cluster
+    const label = `🖥️ HOST · ${h.id}\n${h.detail || ""}${h.port ? "\n:" + h.port : ""}`;
+    els.push({ data: { id: `host:${h.id}`, kind: "host", parent: `grp:${g}`, label,
+      status: h.status, color: STATUS_COLOR(h.status), live: h.live } });
+  }
+  // NETWORKS join a cluster box only if every attached node is in that one cluster;
+  // otherwise they float (no parent) as shared fabric between clusters.
+  for (const n of t.networks) {
+    const sub = n.subnet ? `\n${n.subnet}` : "";
+    const flag = n.internal ? "\n🔒 internal (no egress)" : "\negress";
+    const absent = n.present ? "" : "\n(absent)";
+    const data = { id: `net:${n.name}`, kind: "network",
+      label: `🌐 NETWORK · ${n.name}${sub}${flag}${absent}`, internal: n.internal, present: n.present };
+    const cs = networkClusters(t, n.name);
+    if (cs.size === 1) { const g = [...cs][0]; data.parent = `grp:${g}`; used.add(g); }
+    els.push({ data });
+  }
+  // cluster parent boxes — prepended so parents resolve before their children
+  for (const g of used) {
+    els.unshift({ data: { id: `grp:${g}`, kind: "group", label: CLUSTERS[g].label, color: CLUSTERS[g].color } });
+  }
+  for (const e of t.edges) {
+    els.push({ data: { id: `e:${e.node}:${e.network}`,
+      source: `node:${e.node}`, target: `net:${e.network}`,
+      label: e.ip || "", internal: e.internal } });
+  }
+  for (const e of (t.host_edges || [])) {
+    if (e.network) {   // host attaches to the egress net as its gateway
+      els.push({ data: { id: `he:${e.host}:${e.network}`,
+        source: `host:${e.host}`, target: `net:${e.network}`,
+        label: e.port ? `gateway :${e.port}` : "gateway", host: true } });
+    } else {           // fallback: direct caller -> host link
+      els.push({ data: { id: `he:${e.node}:${e.host}`,
+        source: `node:${e.node}`, target: `host:${e.host}`,
+        label: e.port ? ":" + e.port : "", host: true } });
+    }
+  }
+  return els;
+}
+
+const STYLE = [
+  // CLUSTERS — compound parent box grouping a team's / the facilities' nodes+nets.
+  { selector: "node[kind='group']", style: {
+      "shape": "round-rectangle",
+      "background-color": "data(color)", "background-opacity": 0.05,
+      "border-width": 1.5, "border-style": "dashed", "border-color": "data(color)",
+      "label": "data(label)", "color": "data(color)",
+      "text-valign": "top", "text-halign": "center", "text-margin-y": 6,
+      "font-size": 15, "font-weight": "bold", "padding": "26px" } },
+  // NETWORKS — ellipse "cloud", translucent blue (egress) / red (internal), bold.
+  { selector: "node[kind='network']", style: {
+      "shape": "ellipse",
+      "background-color": "#1f6feb", "background-opacity": 0.12,
+      "border-width": 3, "border-color": "#1f6feb",
+      "label": "data(label)", "color": "#9ecbff",
+      "text-wrap": "wrap", "text-valign": "center", "text-halign": "center",
+      "font-size": 13, "font-weight": "bold",
+      "width": "label", "height": "label", "padding": "30px", "text-max-width": 200 } },
+  { selector: "node[kind='network'][?internal]", style: {
+      "border-color": "#f85149", "border-style": "dashed", "background-color": "#f85149", "color": "#ffb3ad" } },
+  { selector: "node[kind='network'][!present]", style: { "border-style": "dotted", "opacity": 0.5 } },
+  // CONTAINERS — rounded box, status-colored, normal weight.
+  { selector: "node[kind='container']", style: {
+      "shape": "round-rectangle", "background-color": "data(color)", "background-opacity": 0.22,
+      "border-width": 2, "border-color": "data(color)", "label": "data(label)",
+      "color": "#e6edf3", "text-wrap": "wrap", "text-valign": "center", "text-halign": "center",
+      "font-size": 11, "width": "label", "height": "label", "padding": "10px", "text-max-width": 230 } },
+  { selector: "node[kind='container'][!live]", style: { "border-style": "dashed", "opacity": 0.55 } },
+  // HOST PROCESS — GameMgr on the host (not a container). Barrel shape, teal double border.
+  { selector: "node[kind='host']", style: {
+      "shape": "barrel", "background-color": "data(color)", "background-opacity": 0.2,
+      "border-width": 2.5, "border-color": "#39c5cf", "border-style": "double",
+      "label": "data(label)", "color": "#a5f3fc",
+      "text-wrap": "wrap", "text-valign": "center", "text-halign": "center",
+      "font-size": 11, "font-weight": "bold",
+      "width": "label", "height": "label", "padding": "14px", "text-max-width": 200 } },
+  { selector: "node[kind='host'][!live]", style: { "border-style": "dashed", "opacity": 0.6 } },
+  { selector: "edge", style: {
+      "width": 1.5, "line-color": "#3b475a",
+      "curve-style": "unbundled-bezier",     // smooth curved edges
+      "control-point-distances": "45", "control-point-weights": "0.5",
+      "label": "data(label)", "font-size": 9, "color": "#7d8590",
+      "text-background-color": "#0e1116", "text-background-opacity": 0.8, "text-background-padding": 2 } },
+  { selector: "edge[?internal]", style: { "line-color": "#7c3b3b", "line-style": "dashed" } },
+  // host links last so they win over the generic edge style (cytoscape = order, not specificity)
+  { selector: "edge[?host]", style: { "line-style": "dotted", "line-color": "#39c5cf", "width": 1.5 } },
+];
+
+// Deterministic 2D layout: host at top-center, facilities just below it (center
+// upper), the two teams in the bottom corners. Within a cluster, networks form a
+// left sub-column and containers/host a right one, vertically centered on the
+// cluster's anchor. Fixed anchors keep curved edges short and the layout stable.
+const ANCHORS = {
+  host:       { x:    0, y: -560 },   // top center
+  facilities: { x:    0, y:    0 },   // center upper
+  team1:      { x: -780, y:  720 },   // bottom left
+  team2:      { x:  780, y:  720 },   // bottom right
+};
+const SUBX = 300, GY = 175, ROWGAP = 340;   // net offset, vertical row gap, horizontal fan gap
+
+function _placeCol(ids, x, ay, pos) {       // stack vertically, centered on (x, ay)
+  const n = ids.length;
+  ids.forEach((id, i) => { pos[id] = { x, y: ay + (i - (n - 1) / 2) * GY }; });
+}
+function _placeRow(ids, cx, y, pos) {        // fan horizontally, centered on (cx, y)
+  const n = ids.length;
+  ids.forEach((id, i) => { pos[id] = { x: cx + (i - (n - 1) / 2) * ROWGAP, y }; });
+}
+
+function computePositions(t) {
+  const pos = {};
+  // 1) cluster members (containers + host) — a single column at each anchor.
+  const members = {}, singleNets = {};
+  for (const c of Object.keys(ANCHORS)) { members[c] = []; singleNets[c] = []; }
+  for (const n of t.nodes) members[clusterOf(n.id)].push(`node:${n.id}`);
+  for (const h of (t.hosts || [])) members["host"].push(`host:${h.id}`);
+
+  // 2) classify networks: single-cluster ones tuck beside that cluster; the rest
+  //    float at the centroid of the clusters they bridge.
+  const floatGroups = {};
+  for (const net of t.networks) {
+    const cs = [...networkClusters(t, net.name)].sort();
+    if (cs.length === 1) {
+      singleNets[cs[0]].push(`net:${net.name}`);
+    } else {
+      const k = cs.join("|") || "_";
+      (floatGroups[k] = floatGroups[k] || { cs, ids: [] }).ids.push(`net:${net.name}`);
+    }
+  }
+
+  for (const c of Object.keys(ANCHORS)) {
+    const a = ANCHORS[c];
+    _placeCol(members[c].slice().sort(), a.x, a.y, pos);             // nodes (column)
+    _placeCol(singleNets[c].slice().sort(), a.x - SUBX, a.y, pos);   // own nets, to the left
+  }
+  for (const k in floatGroups) {
+    const { cs, ids } = floatGroups[k];
+    const anchors = cs.filter(c => ANCHORS[c]).map(c => ANCHORS[c]);
+    const xs = anchors.map(a => a.x), ys = anchors.map(a => a.y);
+    const cx = xs.reduce((s, v) => s + v, 0) / (xs.length || 1);
+    const cy = ys.reduce((s, v) => s + v, 0) / (ys.length || 1);
+    const xspread = Math.max(...xs) - Math.min(...xs);
+    const sorted = ids.slice().sort();
+    if (xspread < 200) {
+      // clusters stacked vertically (same column) → put nets BESIDE it, fanned down
+      _placeCol(sorted, cx + SUBX, cy, pos);
+    } else {
+      // clusters spread horizontally → fan nets along the bridge between them
+      _placeRow(sorted, cx, cy, pos);
+    }
+  }
+  return pos;
+}
+
+// Push apart any overlapping leaf nodes (containers / host / networks) using their
+// actual rendered boxes — the preset centroids can collide, esp. floating nets.
+// Deterministic: same start positions → same result. Compound boxes auto-refit.
+function separateOverlaps(pad = 16, iterations = 80) {
+  const nodes = cy.nodes().filter(n => n.data("kind") !== "group");
+  for (let it = 0; it < iterations; it++) {
+    let moved = false;
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i], b = nodes[j];
+        const pa = a.position(), pb = b.position();
+        const minx = a.width() / 2 + b.width() / 2 + pad;
+        const miny = a.height() / 2 + b.height() / 2 + pad;
+        const dx = pb.x - pa.x, dy = pb.y - pa.y;
+        const ox = minx - Math.abs(dx), oy = miny - Math.abs(dy);
+        if (ox > 0 && oy > 0) {                 // boxes overlap → separate on the shallow axis
+          moved = true;
+          if (ox < oy) {
+            const s = (dx === 0 ? 1 : Math.sign(dx)) * ox / 2;
+            a.position({ x: pa.x - s, y: pa.y }); b.position({ x: pb.x + s, y: pb.y });
+          } else {
+            const s = (dy === 0 ? 1 : Math.sign(dy)) * oy / 2;
+            a.position({ x: pa.x, y: pa.y - s }); b.position({ x: pb.x, y: pb.y + s });
+          }
+        }
+      }
+    }
+    if (!moved) break;
+  }
+}
+
+function applyLayout(t) {
+  const pos = computePositions(t);
+  cy.batch(() => {                       // set positions synchronously (no async layout race)
+    cy.nodes().forEach(n => { const p = pos[n.id()]; if (p) n.position(p); });
+  });
+  separateOverlaps();
+  cy.fit(undefined, 50);
+}
+
+function render(t) {
+  const els = toElements(t);
+  const sig = els.map(e => e.data.id).sort().join("|"); // structural signature
+  if (!cy) {
+    cy = cytoscape({ container: document.getElementById("cy"), elements: els, style: STYLE,
+      wheelSensitivity: 0.2 });
+    applyLayout(t); lastSig = sig; return;
+  }
+  if (sig !== lastSig) {            // structure changed → rebuild + re-position
+    cy.elements().remove(); cy.add(els); applyLayout(t); lastSig = sig;
+  } else {                          // same structure → just refresh data (status/labels/ports)
+    for (const e of els) { const ex = cy.getElementById(e.data.id); if (ex) ex.data(e.data); }
+  }
+}
+
+function update(t, snapshot) {
+  render(t);
+  const when = new Date(t.generated_at * 1000).toLocaleTimeString();
+  // LIVE iff the docker overlay found running/created containers; otherwise this
+  // is the intended topology parsed from the config (finished job, or pre-bringup).
+  const liveN = t.nodes.filter(n => n.live).length;
+  const isLive = liveN > 0;
+  const mode = document.getElementById("mode");
+  mode.className = "badge " + (isLive ? "live" : "intended");
+  mode.textContent = (isLive
+      ? `● LIVE topology — ${liveN}/${t.nodes.length} containers up`
+      : "○ intended topology (from config)")
+    + (snapshot ? " · snapshot" : "");
+  document.title = "cyber-arena · " + (isLive ? "LIVE" : "intended") + " topology";
+  document.getElementById("meta").textContent =
+    `${t.nodes.length} nodes · ${t.networks.length} nets · ${when}` +
+    (t.config ? ` · ${t.config}` : "");
+  document.getElementById("err").textContent = t.docker_error ? `docker: ${t.docker_error}` : "";
+}
+
+async function poll() {
+  try {
+    const r = await fetch("/api/topology", { cache: "no-store" });
+    update(await r.json(), false);
+  } catch (e) {
+    document.getElementById("err").textContent = `poll failed: ${e}`;
+  }
+}
+
+window.addEventListener("load", () => {
+  if (typeof cytoscape === "undefined") { document.getElementById("fallback").style.display = "block"; return; }
+  if (window.__SNAPSHOT__) { update(window.__SNAPSHOT__, true); return; }  // static snapshot: render once, no polling
+  poll(); setInterval(poll, POLL_MS);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,272 @@
+#!/usr/bin/env python3
+"""codex-security-mcp — a local stdio MCP server that hands the arena's security scanner to the model
+as a first-class TOOL instead of an unadvertised binary on PATH.
+
+WHY THIS EXISTS. A binary on PATH is not a tool: nothing advertises it, so the model only
+uses it if a prompt names it, and every invocation collapses into one undifferentiated
+`command_execution` card that no one can count. An MCP tool rides the same channel as the
+arena's own tools — the CLI fetches this server's tool list and merges it into the request
+schema — so the model discovers it automatically, and every call lands in the trajectory as
+`mcp_tool_call`, which `gamemgr/transcripts.py` already renders and tallies. That makes
+"did this team use the scanner, and how often" a number in the run artifact rather than a
+grep over free text.
+
+TRIGGER + POLL, not one blocking call. A scan runs for minutes and an MCP call is
+request/response, so this mirrors the arena's own `trigger_health_check` / `get_health_checks`
+pair: `trigger_security_scan` starts one in a worker thread and returns immediately with an
+id; `get_security_scan` reports progress and, when finished, the findings. Nothing here can
+wedge the model waiting on a socket.
+
+It shells out to the routed `codex-security` wrapper (the one on /usr/local/bin, which owns
+credential resolution, the api-router provider overrides and the exit-code semantics) — so
+routing lives in exactly one place, not two.
+
+Stdlib only, stdio transport: newline-delimited JSON-RPC 2.0 on stdin/stdout. Anything this
+process writes to stdout that is not a response would corrupt the stream, so all diagnostics
+go to stderr.
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import uuid
+
+PROTOCOL_VERSION = "2025-06-18"
+SERVER_NAME = "arena-scanner"
+# Scans are capped so a wedged one cannot hold a worker (and its spend) for the whole match.
+SCAN_TIMEOUT_SECS = int(os.environ.get("CSEC_MCP_SCAN_TIMEOUT", "1800"))
+
+_scans: dict[str, dict] = {}
+_lock = threading.Lock()
+
+
+def _log(msg: str) -> None:
+    print(f"codex-security-mcp: {msg}", file=sys.stderr, flush=True)
+
+
+# ── the scan worker ─────────────────────────────────────────────────────────────
+def _run_scan(scan_id: str, path: str, out_dir: str) -> None:
+    # The routed wrapper (on /usr/local/bin, ahead of the real /usr/bin binary on PATH).
+    cmd = ["codex-security", "scan", path, "--output-dir", out_dir, "--format", "json"]
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=SCAN_TIMEOUT_SECS,
+        )
+        # the wrapper already remaps "found findings" (1) to 0; non-zero is a real failure.
+        state = "done" if proc.returncode == 0 else "failed"
+        with _lock:
+            _scans[scan_id].update(
+                state=state,
+                exit_code=proc.returncode,
+                stdout=proc.stdout[-200_000:],
+                stderr=proc.stderr[-20_000:],
+            )
+    except subprocess.TimeoutExpired:
+        with _lock:
+            _scans[scan_id].update(
+                state="failed", exit_code=None,
+                stderr=f"scan exceeded CSEC_MCP_SCAN_TIMEOUT ({SCAN_TIMEOUT_SECS}s)",
+            )
+    except Exception as exc:  # noqa: BLE001 — a crashed worker must still be reportable
+        with _lock:
+            _scans[scan_id].update(state="failed", exit_code=None, stderr=repr(exc))
+
+
+def _summarize(scan: dict) -> dict:
+    """What the model gets back. The full artifacts stay on disk under output_dir; only a
+    digest crosses the wire so one call cannot blow up the context window."""
+    out = {"scan_id": scan["id"], "state": scan["state"], "path": scan["path"],
+           "output_dir": scan["output_dir"]}
+    if scan["state"] == "running":
+        out["hint"] = "still scanning — call get_security_scan again in ~30s"
+        return out
+    if scan["state"] == "failed":
+        out["error"] = (scan.get("stderr") or "").strip()[-2000:]
+        return out
+
+    findings: list = []
+    try:
+        doc = json.loads(scan.get("stdout") or "{}")
+        raw = doc.get("findings")
+        if isinstance(raw, dict):
+            raw = raw.get("items") or raw.get("findings") or []
+        for f in (raw or []):
+            if not isinstance(f, dict):
+                continue
+            sev = f.get("severity")
+            if isinstance(sev, dict):
+                sev = sev.get("level")
+            findings.append({
+                "title": f.get("title") or f.get("name"),
+                "severity": sev,
+                "file": f.get("file") or f.get("path") or (f.get("location") or {}).get("path"),
+                "description": (f.get("description") or f.get("summary") or "")[:600],
+            })
+        out["coverage"] = doc.get("coverage")
+    except (ValueError, TypeError) as exc:
+        out["parse_error"] = f"could not parse scan output: {exc}"
+        out["raw_tail"] = (scan.get("stdout") or "")[-2000:]
+
+    out["finding_count"] = len(findings)
+    out["findings"] = findings[:40]
+    if len(findings) > 40:
+        out["truncated"] = f"{len(findings) - 40} more findings in {scan['output_dir']}"
+    out["note"] = ("Findings are leads to verify, not facts. Patch by editing the source on "
+                   "your prod box, then make it live with the restart tool.")
+    return out
+
+
+# ── tools ───────────────────────────────────────────────────────────────────────
+TOOLS = [
+    {
+        "name": "trigger_security_scan",
+        "description": (
+            "Start an LLM-driven security scan over a LOCAL source tree and return "
+            "immediately with a scan id. The scan takes minutes; poll get_security_scan for "
+            "the result. It reads a copy on this box, so pull your service's source down "
+            "first (e.g. rsync from your own prod host). Scanning is analysis only: it never "
+            "modifies anything and never touches the opponent."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute path to the source tree to scan on this machine.",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "get_security_scan",
+        "description": (
+            "Read the state of a scan started with trigger_security_scan: 'running', "
+            "'failed', or 'done' with the findings (title, severity, file, description). "
+            "Safe to call repeatedly."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "scan_id": {
+                    "type": "string",
+                    "description": "The id returned by trigger_security_scan. Omit to list all scans.",
+                },
+            },
+        },
+    },
+]
+
+
+def _tool_trigger(args: dict) -> dict:
+    path = (args or {}).get("path")
+    if not isinstance(path, str) or not path.strip():
+        return {"error": "path is required (absolute path to a source tree on this machine)"}
+    path = os.path.abspath(path)
+    if not os.path.isdir(path):
+        return {"error": f"not a directory on this machine: {path}"}
+    if shutil.which("codex-security") is None:
+        return {"error": "the 'codex-security' scanner is not on PATH in this container"}
+
+    scan_id = uuid.uuid4().hex[:12]
+    out_dir = tempfile.mkdtemp(prefix=f"scan-{scan_id}-")
+    with _lock:
+        _scans[scan_id] = {"id": scan_id, "state": "running", "path": path,
+                           "output_dir": out_dir, "stdout": "", "stderr": ""}
+    threading.Thread(target=_run_scan, args=(scan_id, path, out_dir), daemon=True).start()
+    _log(f"scan {scan_id} started on {path}")
+    return {"scan_id": scan_id, "state": "running", "path": path,
+            "next": "poll get_security_scan with this scan_id; scans take minutes"}
+
+
+def _tool_get(args: dict) -> dict:
+    scan_id = (args or {}).get("scan_id")
+    with _lock:
+        if not scan_id:
+            return {"scans": [{"scan_id": s["id"], "state": s["state"], "path": s["path"]}
+                              for s in _scans.values()]}
+        scan = _scans.get(scan_id)
+        scan = dict(scan) if scan else None
+    if scan is None:
+        return {"error": f"unknown scan_id {scan_id!r}"}
+    return _summarize(scan)
+
+
+HANDLERS = {"trigger_security_scan": _tool_trigger, "get_security_scan": _tool_get}
+
+
+# ── JSON-RPC plumbing ───────────────────────────────────────────────────────────
+def _reply(msg_id, result=None, error=None) -> None:
+    out = {"jsonrpc": "2.0", "id": msg_id}
+    if error is not None:
+        out["error"] = error
+    else:
+        out["result"] = result
+    sys.stdout.write(json.dumps(out) + "\n")
+    sys.stdout.flush()
+
+
+def _handle(msg: dict) -> None:
+    method = msg.get("method")
+    msg_id = msg.get("id")
+    params = msg.get("params") or {}
+
+    if method == "initialize":
+        # Echo the client's protocol version when it names one, so a newer or older CLI
+        # negotiates cleanly instead of failing the handshake.
+        version = params.get("protocolVersion")
+        _reply(msg_id, {
+            "protocolVersion": version if isinstance(version, str) else PROTOCOL_VERSION,
+            "capabilities": {"tools": {}},
+            "serverInfo": {"name": SERVER_NAME, "version": "1"},
+        })
+    elif method in ("notifications/initialized", "initialized", "notifications/cancelled"):
+        pass  # notifications carry no id and take no response
+    elif method == "tools/list":
+        _reply(msg_id, {"tools": TOOLS})
+    elif method == "tools/call":
+        name = params.get("name")
+        handler = HANDLERS.get(name)
+        if handler is None:
+            _reply(msg_id, error={"code": -32602, "message": f"unknown tool {name!r}"})
+            return
+        try:
+            payload = handler(params.get("arguments") or {})
+        except Exception as exc:  # noqa: BLE001 — never kill the server on one bad call
+            _log(f"tool {name} raised: {exc!r}")
+            payload = {"error": repr(exc)}
+        _reply(msg_id, {
+            "content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}],
+            "isError": bool(payload.get("error")),
+        })
+    elif method == "ping":
+        _reply(msg_id, {})
+    elif msg_id is not None:
+        _reply(msg_id, error={"code": -32601, "message": f"method not found: {method}"})
+
+
+def main() -> int:
+    _log("ready (stdio)")
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            _log(f"dropping non-JSON line: {line[:120]!r}")
+            continue
+        try:
+            _handle(msg)
+        except Exception as exc:  # noqa: BLE001 — a protocol error must not end the session
+            _log(f"handler error: {exc!r}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

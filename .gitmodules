@@ -1,0 +1,4 @@
+[submodule "challenge-warehouse"]
+	path = challenge-warehouse
+	url = https://github.com/cyber-arena-ai/challenge-warehouse
+	branch = main

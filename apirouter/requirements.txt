@@ -1,0 +1,7 @@
+# apirouter is self-contained: these are its only runtime deps. It's a verbatim
+# reverse passthrough + egress firewall + metering — no litellm, no SDKs, no
+# format translation.
+fastapi==0.136.3
+uvicorn[standard]==0.48.0
+httpx==0.28.1
+pyyaml==6.0.3

@@ -1,0 +1,46 @@
+# Baked config for cyberarena/api-router-cfg — the self-contained router the v3
+# isolated configs launch as the `api-router` node (no env/volume injected).
+# Built into the image at /app/config.yaml (NOT /data, which the base image
+# declares as a VOLUME and would discard at runtime). See apirouter-cfg/Dockerfile.
+
+listen:
+  gateway: "0.0.0.0:8080"   # agents' base_url -> metering gateway
+  proxy: "0.0.0.0:3128"     # agents' HTTPS_PROXY -> egress firewall
+
+upstream:
+  base_url: "https://app-us.ppapi.ai"
+  # Real upstream key injected at RUNTIME from the container env (never baked
+  # into the image). The api-router node passes UPSTREAM_API_KEY in; the game
+  # loader sources it from .env (API_ROUTER_KEY). Injected on forward, so the
+  # agent containers only ever hold their principal token.
+  api_key: "${UPSTREAM_API_KEY}"
+
+# Per-team attribution. Tokens match .env ANTHROPIC_API_KEY_TEAM1 / CODEX_API_KEY_TEAM2.
+# No budget_usd -> no spend cap (no surprise 402s mid-match).
+principals:
+  - { id: team1, token: "team1-token" }
+  - { id: team2, token: "team2-token" }
+
+pricing:
+  claude-sonnet-4-6: { input: 0.0, output: 0.0 }
+  gpt-5.4:     { input: 0.0, output: 0.0 }
+
+compat:
+  drop_empty_content: true
+  drop_params: ["reasoning_effort"]
+  json_schema_fallback: true
+  retry_on_5xx: 2
+  retry_backoff_ms: 500
+  max_request_bytes: 5242880
+
+firewall:
+  default: deny
+  allow:
+    domains: ["*.ppapi.ai", "api.anthropic.com"]
+    cidrs: ["10.0.0.0/8"]
+  deny:
+    domains: []
+
+metering:
+  jsonl_path: "usage.jsonl"   # -> /app/usage.jsonl (next to this config)
+  stdout: true
