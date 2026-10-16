@@ -48,12 +48,17 @@ Challenge packages live in the `challenge-warehouse` submodule but are stitched 
 |---|---|---|
 | Docker | Docker Desktop / OrbStack (running) | Docker Engine 20.10+ |
 | Docker permissions | — | `sudo usermod -aG docker $USER`, then re-login |
-| Python | conda / miniconda (any recent) | conda / miniconda (any recent) |
+| Python | 3.10+ (venv, or conda) | 3.10+ (venv, or conda) |
 
 ```bash
 docker version --format '{{.Server.Version}}'
-conda --version
+python3 --version
 ```
+
+> **Architecture.** The facility / mcp-gateway / health-poller images pin
+> `linux/amd64`, so **x86_64 Linux is the tested path**. On Apple Silicon (arm64)
+> they build and run under QEMU emulation (slower) and bring-up works, but
+> validate a full match on an x86_64 host.
 
 ## Setup
 
@@ -67,17 +72,17 @@ git submodule update --init
 # select it before Python starts:
 export CYBERARENA_CHALLENGE_WAREHOUSE=/absolute/path/to/challenge-warehouse
 
-conda create -n cyberarena python=3.11 -y
-conda activate cyberarena
+python3.11 -m venv .venv && source .venv/bin/activate   # or: conda create -n cyberarena python=3.11 -y && conda activate cyberarena
 pip install -r requirements.txt
 
-./scripts/build_images.sh    # all v3 infra/base images: agent-base + one agent-<harness>
-                             # per provider (claude, codex, …) · mcp-gateway ·
-                             # flag-service-base · health-poller-base · api-router(+-cfg)
-# AGENT_HARNESSES="claude codex" ./scripts/build_images.sh   # only the harnesses you run
-# Per-challenge images (cyberarena/chal-notes, cyberarena/chal-nautilus-ico, …) and
-# the per-game flag-service/health-poller are built on demand by `main.py start`.
-# (api-router-cfg needs apirouter-data/config.yaml — see RUN_SAMPLE_CHALLENGE.md §5.)
+# api-router-cfg bakes your egress allow-list — supply it before building:
+mkdir -p apirouter-data && cp apirouter/config.example.yaml apirouter-data/config.yaml
+
+AGENT_HARNESSES="claude codex" ./scripts/build_images.sh   # only the harnesses you run (much faster)
+# ./scripts/build_images.sh    # omit AGENT_HARNESSES to build every agent-<harness> under dockerfiles/agent/
+#                              # (+ mcp-gateway · flag-service-base · health-poller-base · api-router(+-cfg))
+# Per-challenge images (cyberarena/chal-nautilus-ico, …) and the per-game
+# flag-service/health-poller are built on demand by `main.py start`.
 ```
 
 ## Run
@@ -134,7 +139,7 @@ curl -s localhost:8080/usage | jq      # per-person spend, live
 - **Subnet conflict (Ubuntu more than macOS).** Configs hard-code their subnets — the v3 config uses `10.1.0.0/24`, `10.2.0.0/24`, `10.11.0.0/24`, `10.99.0.0/24` (older configs use `10.0.0.0/24`). If a corporate VPN, tailscale, or k8s already claims one, edit `networks:` to free ranges.
 - **`permission denied` on `/var/run/docker.sock`.** You are not in the `docker` group, or you joined it but have not logged out.
 - **Stale containers after a crash.** bring-up is idempotent on container names, but if `start` died mid-way: `docker rm -f team1_dev team1_prod team2_dev team2_prod && docker network rm team1_net team2_net attack_net egress_net`.
-- **Env vars.** `start` needs the agent keys (`ANTHROPIC_API_KEY_TEAM1`, plus `CODEX_API_KEY_TEAM2` for the mixed config) **and** `CYBERARENA_FACILITY_TOKEN` (any random string — the facility↔GameMgr auth) in `.env`. The token isn't optional: a v3 config references `${CYBERARENA_FACILITY_TOKEN}` and **won't load** if it's unset.
+- **Env vars.** `start` needs `API_ROUTER_KEY` (the single real upstream key the api-router forwards with — **both** teams route through it; each team's `api_key` in the config is a non-secret `cad-team1`/`cad-team2` principal token, not a provider key) **and** `CYBERARENA_FACILITY_TOKEN` (any random string — the facility↔GameMgr auth) in `.env`. Neither is optional: a v3 config references `${API_ROUTER_KEY}` and `${CYBERARENA_FACILITY_TOKEN}` and **won't load** if either is unset.
 
 ## Citation
 
