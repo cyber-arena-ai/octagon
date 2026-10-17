@@ -15,7 +15,7 @@ System design: [docs/UML/overview.md](docs/UML/overview.md). Writing a new chall
 Flat package layout — every directory below is importable by its own name (`from gamemgr import …`). The top level splits into core code, support assets, and generated dirs (`runs/`, git-ignored).
 
 ```
-main.py                 CLI entry: setup / start / teardown
+main.py                 CLI entry: start / teardown
 │
 ├─ gamemgr/             GameMgr, round loop, Timeline, events, FastAPI + MCP surface, config loader
 ├─ orchestrator/        Docker container + network lifecycle (infra/ + per-team compose)
@@ -87,7 +87,7 @@ AGENT_HARNESSES="claude codex" ./scripts/build_images.sh   # only the harnesses 
 
 ## Run
 
-`start` is self-contained — it builds the challenge + facility images, brings up the networks and containers from the config, plants flags, and runs the match. **You do not need to run `setup` first.**
+`start` is self-contained — it builds the challenge + facility images, brings up the networks and containers from the config, plants flags, and runs the match.
 
 ```bash
 conda activate cyberarena
@@ -100,7 +100,7 @@ python main.py start -c config/game_ico_v3_isolated_async_mixed.yaml
 python main.py teardown -c config/game_ico_v3_isolated_async_mixed.yaml
 ```
 
-> `main.py setup` (bring-up only, no match) is **optional and not currently maintained** — its build path doesn't wire the v3 api-router / mcp-gateway / facility containers, so prefer `start`. The infra/base images those configs reference are built once by `./scripts/build_images.sh` (above); `start` itself builds only the per-challenge + per-game facility images. If a base image is missing, `start` aborts immediately with `Required base images not found … run bash scripts/build_images.sh first` rather than failing cryptically mid-bring-up.
+> `start` builds only the per-challenge + per-game facility images; the infra/base images the configs reference are built once by `./scripts/build_images.sh` (above). If a base image is missing, `start` aborts immediately with `Required base images not found … run bash scripts/build_images.sh first` rather than failing cryptically mid-bring-up.
 
 Ready-made v3 configs:
 
