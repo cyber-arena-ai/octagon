@@ -90,7 +90,15 @@ AGENT_HARNESSES="claude codex" ./scripts/build_images.sh   # only the harnesses 
 `start` is self-contained — it builds the challenge + facility images, brings up the networks and containers from the config, plants flags, and runs the match.
 
 ```bash
-conda activate cyberarena
+source .venv/bin/activate      # or: conda activate cyberarena
+
+# Set your LLM key once (.env is gitignored). Both teams route through the
+# api-router, so ONE upstream key serves the config's models (the agents hold
+# only the non-secret cad-teamN principal tokens named in the config):
+cat > .env <<'EOF'
+API_ROUTER_KEY=sk-...                                 # real upstream key the api-router forwards with
+CYBERARENA_FACILITY_TOKEN=$(openssl rand -hex 16)     # facility<->GameMgr auth (any random string)
+EOF
 
 # Run a full match (build + bring-up + round loop + agents + panel server on :8000):
 python main.py start -c config/game_ico_v3_isolated_async_mixed.yaml
