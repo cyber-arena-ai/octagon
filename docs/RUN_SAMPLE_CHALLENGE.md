@@ -8,17 +8,14 @@ health-poller run as off-agent containers that plant/probe prod over SSH;
 GameMgr runs on the host. The same steps work for any challenge — just swap the
 config file. Tested most recently on Amazon Linux 2023.
 
-**Host:** Docker + Python 3.10+, sudo, ≥ 8 GB disk. **x86_64 Linux is the tested
-path** — the facility / mcp-gateway / health-poller images pin `linux/amd64`; on
-Apple Silicon (arm64) they build and run under QEMU emulation (slower) and
-bring-up works, but run a full match on an x86_64 host.
+**Host:** Docker + Python 3.10+, sudo, ≥ 8 GB disk. The facility / mcp-gateway /
+health-poller images pin `linux/amd64`; on Apple Silicon they run under emulation
+(slower, but works).
 
-**Keys:** the bundled config (`config/game_ico_v3_isolated_async_mixed.yaml`)
-runs **team1 on Claude, team2 on Codex (GPT)**, but both teams reach the LLM
-through the **api-router**, so you supply just **one** upstream key
-(`API_ROUTER_KEY`) for a provider that serves both model families (e.g. the
-default reseller `app-us.ppapi.ai`). To bill Claude and GPT to native providers
-instead, see [ADD_LLM_UPSTREAM.md](ADD_LLM_UPSTREAM.md).
+**Keys:** the bundled config runs **Claude vs Codex**, but both teams reach the
+LLM through the **api-router**, so you supply just **one** upstream key
+(`API_ROUTER_KEY`) for a provider that serves both models (e.g. the default
+`app-us.ppapi.ai`). To split across native providers, see [ADD_LLM_UPSTREAM.md](ADD_LLM_UPSTREAM.md).
 
 ## 1. Install Docker + Python 3.10+
 
@@ -70,13 +67,10 @@ EOF
 chmod 600 .env
 ```
 
-`main.py` auto-loads `.env` via `python-dotenv`. Both teams reach the LLM through
-the api-router (`base_url: http://api-router:8080` in the config); each team's
-`api_key` is a **non-secret principal token** (`cad-team1` / `cad-team2`, declared
-plainly in the config), and the router substitutes the real `API_ROUTER_KEY` on
-forward — so an agent never holds a provider key. `CYBERARENA_FACILITY_TOKEN`
-authenticates the flag-service / health-poller callbacks into GameMgr; it's never
-written to the repo or events, and a v3 config **won't load** if it's unset.
+`main.py` auto-loads `.env`. `API_ROUTER_KEY` is the one real upstream key the
+api-router forwards with (agents only hold the non-secret `cad-teamN` tokens);
+`CYBERARENA_FACILITY_TOKEN` is the facility↔GameMgr auth. A v3 config won't load
+if either is unset.
 
 ## 4. Build the infra images (once)
 

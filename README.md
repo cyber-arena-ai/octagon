@@ -55,10 +55,8 @@ docker version --format '{{.Server.Version}}'
 python3 --version
 ```
 
-> **Architecture.** The facility / mcp-gateway / health-poller images pin
-> `linux/amd64`, so **x86_64 Linux is the tested path**. On Apple Silicon (arm64)
-> they build and run under QEMU emulation (slower) and bring-up works, but
-> validate a full match on an x86_64 host.
+> **Apple Silicon:** the facility / mcp-gateway / health-poller images pin
+> `linux/amd64`, so they run under emulation — slower, but works.
 
 ## Setup
 
@@ -92,12 +90,10 @@ AGENT_HARNESSES="claude codex" ./scripts/build_images.sh   # only the harnesses 
 ```bash
 source .venv/bin/activate      # or: conda activate cyberarena
 
-# Set your LLM key once (.env is gitignored). Both teams route through the
-# api-router, so ONE upstream key serves the config's models (the agents hold
-# only the non-secret cad-teamN principal tokens named in the config):
+# Set your LLM key in .env (gitignored):
 cat > .env <<'EOF'
-API_ROUTER_KEY=sk-...                                 # real upstream key the api-router forwards with
-CYBERARENA_FACILITY_TOKEN=$(openssl rand -hex 16)     # facility<->GameMgr auth (any random string)
+API_ROUTER_KEY=sk-...                                 # your upstream LLM key
+CYBERARENA_FACILITY_TOKEN=$(openssl rand -hex 16)     # any random string
 EOF
 
 # Run a full match (build + bring-up + round loop + agents + panel server on :8000):
@@ -108,7 +104,7 @@ python main.py start -c config/game_ico_v3_isolated_async_mixed.yaml
 python main.py teardown -c config/game_ico_v3_isolated_async_mixed.yaml
 ```
 
-> `start` builds only the per-challenge + per-game facility images; the infra/base images the configs reference are built once by `./scripts/build_images.sh` (above). If a base image is missing, `start` aborts immediately with `Required base images not found … run bash scripts/build_images.sh first` rather than failing cryptically mid-bring-up.
+> `start` builds the challenge + facility images itself; the infra/base images come from `./scripts/build_images.sh` (above). Miss one and `start` tells you which to build.
 
 Ready-made v3 configs:
 
@@ -147,7 +143,7 @@ curl -s localhost:8080/usage | jq      # per-person spend, live
 - **Subnet conflict (Ubuntu more than macOS).** Configs hard-code their subnets — the v3 config uses `10.1.0.0/24`, `10.2.0.0/24`, `10.11.0.0/24`, `10.99.0.0/24` (older configs use `10.0.0.0/24`). If a corporate VPN, tailscale, or k8s already claims one, edit `networks:` to free ranges.
 - **`permission denied` on `/var/run/docker.sock`.** You are not in the `docker` group, or you joined it but have not logged out.
 - **Stale containers after a crash.** bring-up is idempotent on container names, but if `start` died mid-way: `docker rm -f team1_dev team1_prod team2_dev team2_prod && docker network rm team1_net team2_net attack_net egress_net`.
-- **Env vars.** `start` needs `API_ROUTER_KEY` (the single real upstream key the api-router forwards with — **both** teams route through it; each team's `api_key` in the config is a non-secret `cad-team1`/`cad-team2` principal token, not a provider key) **and** `CYBERARENA_FACILITY_TOKEN` (any random string — the facility↔GameMgr auth) in `.env`. Neither is optional: a v3 config references `${API_ROUTER_KEY}` and `${CYBERARENA_FACILITY_TOKEN}` and **won't load** if either is unset.
+- **Env vars.** A v3 config won't load without `API_ROUTER_KEY` and `CYBERARENA_FACILITY_TOKEN` in `.env` (see Run above).
 
 ## Citation
 
