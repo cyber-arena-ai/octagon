@@ -144,8 +144,8 @@ curl -s localhost:8080/usage | jq      # per-person spend, live
   author  = {Liu, Bangya and Tu, Jianhong and Pan, Yueyang and Zhao, Hanhong and Ye, Zhe and
              Li, Hongwei and Vasan, Saastha and Lambert, Katherine and Zhu, Junmin and Wang, Hao and
              Chen, Jienan and Xiao, Yunze and Yang, Minglai and Wang, Zihan and Yin, Hairong and
-             Wang, Hao and Fan, Zhiwen and Shi, Tianneng and Wang, Zhun and Wang, Chenguang and
-             Song, Dawn},
+             Wang, Hao and Fan, Zhiwen and Shi, Tianneng and Wang, Zhun and Guo, Wenbo and
+             Wang, Chenguang and Song, Dawn},
   journal = {arXiv preprint arXiv:2610.19005},
   year    = {2026}
 }
