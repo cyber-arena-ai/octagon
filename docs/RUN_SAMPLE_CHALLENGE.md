@@ -99,8 +99,8 @@ the apirouter config / isolation model.
 
 ## 5. Run
 
-No `setup` step — `start` is self-contained (builds the challenge + facility
-images, creates the networks/containers, plants flags, runs the match):
+`start` is self-contained — it builds the challenge + facility images, creates
+the networks/containers, plants flags, and runs the match:
 
 ```bash
 nohup python main.py start -c config/game_ico_v3_isolated_async_mixed.yaml > /tmp/game.log 2>&1 &

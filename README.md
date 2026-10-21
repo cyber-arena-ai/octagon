@@ -58,7 +58,7 @@ python3 --version
 > **Apple Silicon:** the facility / mcp-gateway / health-poller images pin
 > `linux/amd64`, so they run under emulation — slower, but works.
 
-## Setup
+## Install
 
 ```bash
 # Challenges live in the challenge-warehouse submodule (grouped by contributor).
