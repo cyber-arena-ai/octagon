@@ -2,7 +2,7 @@
 
 **Octagon** is the game engine behind [CyberArena](https://cyber-arena.ai), a benchmark in which two AI agents play **attack-and-defense CTF** against each other in an isolated network sandbox. Each agent attacks the opponent's copy of a vulnerable service for a flag that rotates every round, while patching its own copy; the arena verifies every capture and health check.
 
-This repository spins up the Docker networks and per-team containers, plants and rotates flags, probes service health, runs the round loop, and drives LLM coding agents for both sides through an MCP channel. Harnesses are mixable per team: Claude Code, Codex, opencode, Gemini CLI, Grok CLI, Kimi, Qwen Code, the DeepSeek harness, OpenHands and NexAU, plus `script` and `idle` placeholders for solo and verification runs.
+It spins up the Docker networks and per-team containers, plants/rotates flags, probes health, runs the round loop, and drives the agents over MCP. Harnesses are mixable per team — Claude Code, Codex, Gemini, Grok, Kimi, Qwen, DeepSeek, opencode, OpenHands, NexAU — plus `script`/`idle` for solo & verification runs.
 
 - **Paper:** [arXiv:2610.19005](https://arxiv.org/abs/2610.19005) · [alphaXiv](https://www.alphaxiv.org/abs/2610.19005)
 - **Leaderboard and match replays:** [cyber-arena.ai](https://cyber-arena.ai)
@@ -12,7 +12,7 @@ System design: [docs/UML/overview.md](docs/UML/overview.md). Writing a new chall
 
 ## Repository layout
 
-Flat package layout — every directory below is importable by its own name (`from gamemgr import …`). The top level splits into core code, support assets, and generated dirs (`runs/`, git-ignored).
+Flat layout — each dir imports by its own name (`from gamemgr import …`).
 
 ```
 main.py                 CLI entry: start / teardown
@@ -40,7 +40,7 @@ main.py                 CLI entry: start / teardown
 └─ runs/                Generated run artifacts: events.jsonl, panel snapshots          ·  git-ignored
 ```
 
-Challenge packages live in the `challenge-warehouse` submodule but are stitched into the `challenges` namespace via `__path__`, so each still imports as `challenges.<name>`. How the pieces fit: see [docs/UML/overview.md](docs/UML/overview.md).
+How the pieces fit: [docs/UML/overview.md](docs/UML/overview.md).
 
 ## Prerequisites
 
@@ -50,25 +50,13 @@ Challenge packages live in the `challenge-warehouse` submodule but are stitched 
 | Docker permissions | — | `sudo usermod -aG docker $USER`, then re-login |
 | Python | 3.10+ (venv, or conda) | 3.10+ (venv, or conda) |
 
-```bash
-docker version --format '{{.Server.Version}}'
-python3 --version
-```
-
-> **Apple Silicon:** the facility / mcp-gateway / health-poller images pin
-> `linux/amd64`, so they run under emulation — slower, but works.
-
 ## Install
 
 ```bash
 # Challenges live in the challenge-warehouse submodule (grouped by contributor).
 # Fetch it (or clone the repo with --recurse-submodules):
 git submodule update --init
-# Keep it on the latest warehouse main any time: ./scripts/update_challenges.sh
-
-# The bundled submodule is the default. To use a separate checkout for review,
-# select it before Python starts:
-export CYBERARENA_CHALLENGE_WAREHOUSE=/absolute/path/to/challenge-warehouse
+# (keep it current any time: ./scripts/update_challenges.sh)
 
 python3.11 -m venv .venv && source .venv/bin/activate   # or: conda create -n cyberarena python=3.11 -y && conda activate cyberarena
 pip install -r requirements.txt
@@ -76,11 +64,8 @@ pip install -r requirements.txt
 # api-router-cfg bakes your egress allow-list — supply it before building:
 mkdir -p apirouter-data && cp apirouter/config.example.yaml apirouter-data/config.yaml
 
-AGENT_HARNESSES="claude codex" ./scripts/build_images.sh   # only the harnesses you run (much faster)
-# ./scripts/build_images.sh    # omit AGENT_HARNESSES to build every agent-<harness> under dockerfiles/agent/
-#                              # (+ mcp-gateway · flag-service-base · health-poller-base · api-router(+-cfg))
-# Per-challenge images (cyberarena/chal-nautilus-ico, …) and the per-game
-# flag-service/health-poller are built on demand by `main.py start`.
+AGENT_HARNESSES="claude codex" ./scripts/build_images.sh   # the harnesses you run; omit to build all
+# (per-challenge + facility images are built on demand by `main.py start`)
 ```
 
 ## Run
@@ -111,7 +96,7 @@ Ready-made v3 configs:
 - [`config/game_ico_v3_isolated_async_mixed.yaml`](config/game_ico_v3_isolated_async_mixed.yaml) — the reference example: `nautilus-ico` (DEF CON Finals 2025), full v3 isolated topology (on-net mcp-gateway + SSH facilities + api-router egress + per-run firewall), async 5×5 min, mixed Claude + Codex. End-to-end recipe: [docs/RUN_SAMPLE_CHALLENGE.md](docs/RUN_SAMPLE_CHALLENGE.md).
 - [`config/v3_example/`](config/v3_example/) — one ready-made v3 config **per challenge** (same topology as the reference, with that challenge's image/port), e.g. `config/v3_example/rceaas.yaml`.
 
-> [`config/legacy/`](config/legacy/) holds `game.yaml` (the minimal pre-v3 topology fixture the test suite loads — not for real runs) and the single-provider nautilus variants `game_ico_v3_{opencode,codex}.yaml`. Other pre-v3 example configs were removed; for real runs use the v3 configs above.
+> `config/legacy/` holds pre-v3 fixtures the test suite loads — not for real runs.
 
 ## Tests
 
@@ -120,23 +105,9 @@ pytest                       # full suite (~90s; auto-skips live tests when dock
 pytest tests/test_m1_topology.py -v   # one of the live integration tests
 ```
 
-## API Router (egress gateway + LLM metering proxy)
+## API Router
 
-`apirouter/` is a self-contained service that sits between containers and the outside world: it meters every LLM call (tokens / cost, per person), caps spend, and firewalls egress by domain/IP. It's verbatim passthrough — no format translation. Full docs: [docs/archived/api_router_plan_v1.md](docs/archived/api_router_plan_v1.md).
-
-```bash
-# offline self-test (built-in mock upstream — no key, no network)
-pip install -r apirouter/requirements.txt
-python apirouter/selftest.py            # → 8/8 checks passed
-
-# run it (config + logs live in one dir; only the real upstream key via -e)
-docker build -t cyberarena/api-router apirouter/
-mkdir -p apirouter-data && cp apirouter/config.example.yaml apirouter-data/config.yaml
-docker run -d --name api-router -p 8080:8080 -p 3128:3128 \
-  -e UPSTREAM_API_KEY=sk-real -v "$PWD/apirouter-data:/data" cyberarena/api-router
-
-curl -s localhost:8080/usage | jq      # per-person spend, live
-```
+`apirouter/` is a self-contained egress gateway + LLM metering proxy: it meters every LLM call (tokens/cost per person), caps spend, and firewalls egress — verbatim passthrough, no translation. Offline self-test: `python apirouter/selftest.py` (→ 8/8). Full docs: [docs/archived/api_router_plan_v1.md](docs/archived/api_router_plan_v1.md).
 
 ## Common gotchas
 
