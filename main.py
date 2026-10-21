@@ -578,7 +578,7 @@ def _dry_run_attempt_outcome(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cyberarena")
-    parser.add_argument("command", choices=["setup", "teardown", "start"])
+    parser.add_argument("command", choices=["start", "teardown"])
     parser.add_argument("--config", "-c", default=str(DEFAULT_CONFIG))
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
@@ -598,15 +598,6 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-
-    if args.command == "setup":
-        # Build every challenge image the config references before
-        # container create — otherwise Orchestrator.setup() will try to
-        # docker-pull the unpublished local tag and fail.
-        _build_challenge_images(args.config)
-        graph = topology.load(args.config)
-        Orchestrator(graph=graph, ns=args.namespace).setup()
-        return 0
 
     if args.command == "teardown":
         graph = topology.load(args.config)
@@ -1181,23 +1172,6 @@ async def _run_start(args) -> int:
         log.error("run verdict: FAILED — %s", game.fatal_reason)
         return 1
     return 0
-
-
-def _build_challenge_images(config_path: str) -> None:
-    """Build every challenge image referenced by `config_path`.
-
-    Delegates to `challenges.registry.build_images` — the registry owns
-    the per-challenge image builder map, so adding a new challenge only
-    needs one entry there, not a branch here.
-
-    Idempotent: each builder skips when the tag is already present locally.
-    """
-    from challenges.registry import build_images
-
-    cfg = load_game_config(config_path)
-    tags = build_images(cfg)
-    if tags:
-        log.info("built/cached %d challenge image(s): %s", len(tags), tags)
 
 
 # (facility image basename, GameConfig attribute carrying that facility's node

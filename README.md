@@ -2,7 +2,7 @@
 
 **Octagon** is the game engine behind [CyberArena](https://cyber-arena.ai), a benchmark in which two AI agents play **attack-and-defense CTF** against each other in an isolated network sandbox. Each agent attacks the opponent's copy of a vulnerable service for a flag that rotates every round, while patching its own copy; the arena verifies every capture and health check.
 
-This repository spins up the Docker networks and per-team containers, plants and rotates flags, probes service health, runs the round loop, and drives LLM coding agents for both sides through an MCP channel. Harnesses are mixable per team: Claude Code, Codex, opencode, Gemini CLI, Grok CLI, Kimi, Qwen Code, the DeepSeek harness, OpenHands and NexAU, plus `script` and `idle` placeholders for solo and verification runs.
+It spins up the Docker networks and per-team containers, plants/rotates flags, probes health, runs the round loop, and drives the agents over MCP. Harnesses are mixable per team — Claude Code, Codex, Gemini, Grok, Kimi, Qwen, DeepSeek, opencode, OpenHands, NexAU — plus `script`/`idle` for solo & verification runs.
 
 - **Paper:** [arXiv:2610.19005](https://arxiv.org/abs/2610.19005) · [alphaXiv](https://www.alphaxiv.org/abs/2610.19005)
 - **Leaderboard and match replays:** [cyber-arena.ai](https://cyber-arena.ai)
@@ -12,10 +12,10 @@ System design: [docs/UML/overview.md](docs/UML/overview.md). Writing a new chall
 
 ## Repository layout
 
-Flat package layout — every directory below is importable by its own name (`from gamemgr import …`). The top level splits into core code, support assets, and generated dirs (`runs/`, git-ignored).
+Flat layout — each dir imports by its own name (`from gamemgr import …`).
 
 ```
-main.py                 CLI entry: setup / start / teardown
+main.py                 CLI entry: start / teardown
 │
 ├─ gamemgr/             GameMgr, round loop, Timeline, events, FastAPI + MCP surface, config loader
 ├─ orchestrator/        Docker container + network lifecycle (infra/ + per-team compose)
@@ -40,7 +40,7 @@ main.py                 CLI entry: setup / start / teardown
 └─ runs/                Generated run artifacts: events.jsonl, panel snapshots          ·  git-ignored
 ```
 
-Challenge packages live in the `challenge-warehouse` submodule but are stitched into the `challenges` namespace via `__path__`, so each still imports as `challenges.<name>`. How the pieces fit: see [docs/UML/overview.md](docs/UML/overview.md).
+How the pieces fit: [docs/UML/overview.md](docs/UML/overview.md).
 
 ## Prerequisites
 
@@ -48,44 +48,38 @@ Challenge packages live in the `challenge-warehouse` submodule but are stitched 
 |---|---|---|
 | Docker | Docker Desktop / OrbStack (running) | Docker Engine 20.10+ |
 | Docker permissions | — | `sudo usermod -aG docker $USER`, then re-login |
-| Python | conda / miniconda (any recent) | conda / miniconda (any recent) |
+| Python | 3.10+ (venv, or conda) | 3.10+ (venv, or conda) |
 
-```bash
-docker version --format '{{.Server.Version}}'
-conda --version
-```
-
-## Setup
+## Install
 
 ```bash
 # Challenges live in the challenge-warehouse submodule (grouped by contributor).
 # Fetch it (or clone the repo with --recurse-submodules):
 git submodule update --init
-# Keep it on the latest warehouse main any time: ./scripts/update_challenges.sh
+# (keep it current any time: ./scripts/update_challenges.sh)
 
-# The bundled submodule is the default. To use a separate checkout for review,
-# select it before Python starts:
-export CYBERARENA_CHALLENGE_WAREHOUSE=/absolute/path/to/challenge-warehouse
-
-conda create -n cyberarena python=3.11 -y
-conda activate cyberarena
+python3.11 -m venv .venv && source .venv/bin/activate   # or: conda create -n cyberarena python=3.11 -y && conda activate cyberarena
 pip install -r requirements.txt
 
-./scripts/build_images.sh    # all v3 infra/base images: agent-base + one agent-<harness>
-                             # per provider (claude, codex, …) · mcp-gateway ·
-                             # flag-service-base · health-poller-base · api-router(+-cfg)
-# AGENT_HARNESSES="claude codex" ./scripts/build_images.sh   # only the harnesses you run
-# Per-challenge images (cyberarena/chal-notes, cyberarena/chal-nautilus-ico, …) and
-# the per-game flag-service/health-poller are built on demand by `main.py start`.
-# (api-router-cfg needs apirouter-data/config.yaml — see RUN_SAMPLE_CHALLENGE.md §5.)
+# api-router-cfg bakes your egress allow-list — supply it before building:
+mkdir -p apirouter-data && cp apirouter/config.example.yaml apirouter-data/config.yaml
+
+AGENT_HARNESSES="claude codex" ./scripts/build_images.sh   # the harnesses you run; omit to build all
+# (per-challenge + facility images are built on demand by `main.py start`)
 ```
 
 ## Run
 
-`start` is self-contained — it builds the challenge + facility images, brings up the networks and containers from the config, plants flags, and runs the match. **You do not need to run `setup` first.**
+`start` is self-contained — it builds the challenge + facility images, brings up the networks and containers from the config, plants flags, and runs the match.
 
 ```bash
-conda activate cyberarena
+source .venv/bin/activate      # or: conda activate cyberarena
+
+# Set your LLM key in .env (gitignored):
+cat > .env <<'EOF'
+API_ROUTER_KEY=sk-...                                 # your upstream LLM key
+CYBERARENA_FACILITY_TOKEN=$(openssl rand -hex 16)     # any random string
+EOF
 
 # Run a full match (build + bring-up + round loop + agents + panel server on :8000):
 python main.py start -c config/game_ico_v3_isolated_async_mixed.yaml
@@ -95,14 +89,14 @@ python main.py start -c config/game_ico_v3_isolated_async_mixed.yaml
 python main.py teardown -c config/game_ico_v3_isolated_async_mixed.yaml
 ```
 
-> `main.py setup` (bring-up only, no match) is **optional and not currently maintained** — its build path doesn't wire the v3 api-router / mcp-gateway / facility containers, so prefer `start`. The infra/base images those configs reference are built once by `./scripts/build_images.sh` (above); `start` itself builds only the per-challenge + per-game facility images. If a base image is missing, `start` aborts immediately with `Required base images not found … run bash scripts/build_images.sh first` rather than failing cryptically mid-bring-up.
+> `start` builds the challenge + facility images itself; the infra/base images come from `./scripts/build_images.sh` (above). Miss one and `start` tells you which to build.
 
 Ready-made v3 configs:
 
 - [`config/game_ico_v3_isolated_async_mixed.yaml`](config/game_ico_v3_isolated_async_mixed.yaml) — the reference example: `nautilus-ico` (DEF CON Finals 2025), full v3 isolated topology (on-net mcp-gateway + SSH facilities + api-router egress + per-run firewall), async 5×5 min, mixed Claude + Codex. End-to-end recipe: [docs/RUN_SAMPLE_CHALLENGE.md](docs/RUN_SAMPLE_CHALLENGE.md).
 - [`config/v3_example/`](config/v3_example/) — one ready-made v3 config **per challenge** (same topology as the reference, with that challenge's image/port), e.g. `config/v3_example/rceaas.yaml`.
 
-> [`config/legacy/`](config/legacy/) holds `game.yaml` (the minimal pre-v3 topology fixture the test suite loads — not for real runs) and the single-provider nautilus variants `game_ico_v3_{opencode,codex}.yaml`. Other pre-v3 example configs were removed; for real runs use the v3 configs above.
+> `config/legacy/` holds pre-v3 fixtures the test suite loads — not for real runs.
 
 ## Tests
 
@@ -111,30 +105,16 @@ pytest                       # full suite (~90s; auto-skips live tests when dock
 pytest tests/test_m1_topology.py -v   # one of the live integration tests
 ```
 
-## API Router (egress gateway + LLM metering proxy)
+## API Router
 
-`apirouter/` is a self-contained service that sits between containers and the outside world: it meters every LLM call (tokens / cost, per person), caps spend, and firewalls egress by domain/IP. It's verbatim passthrough — no format translation. Full docs: [docs/archived/api_router_plan_v1.md](docs/archived/api_router_plan_v1.md).
-
-```bash
-# offline self-test (built-in mock upstream — no key, no network)
-pip install -r apirouter/requirements.txt
-python apirouter/selftest.py            # → 8/8 checks passed
-
-# run it (config + logs live in one dir; only the real upstream key via -e)
-docker build -t cyberarena/api-router apirouter/
-mkdir -p apirouter-data && cp apirouter/config.example.yaml apirouter-data/config.yaml
-docker run -d --name api-router -p 8080:8080 -p 3128:3128 \
-  -e UPSTREAM_API_KEY=sk-real -v "$PWD/apirouter-data:/data" cyberarena/api-router
-
-curl -s localhost:8080/usage | jq      # per-person spend, live
-```
+`apirouter/` is a self-contained egress gateway + LLM metering proxy: it meters every LLM call (tokens/cost per person), caps spend, and firewalls egress — verbatim passthrough, no translation. Offline self-test: `python apirouter/selftest.py` (→ 8/8). Full docs: [docs/archived/api_router_plan_v1.md](docs/archived/api_router_plan_v1.md).
 
 ## Common gotchas
 
 - **Subnet conflict (Ubuntu more than macOS).** Configs hard-code their subnets — the v3 config uses `10.1.0.0/24`, `10.2.0.0/24`, `10.11.0.0/24`, `10.99.0.0/24` (older configs use `10.0.0.0/24`). If a corporate VPN, tailscale, or k8s already claims one, edit `networks:` to free ranges.
 - **`permission denied` on `/var/run/docker.sock`.** You are not in the `docker` group, or you joined it but have not logged out.
 - **Stale containers after a crash.** bring-up is idempotent on container names, but if `start` died mid-way: `docker rm -f team1_dev team1_prod team2_dev team2_prod && docker network rm team1_net team2_net attack_net egress_net`.
-- **Env vars.** `start` needs the agent keys (`ANTHROPIC_API_KEY_TEAM1`, plus `CODEX_API_KEY_TEAM2` for the mixed config) **and** `CYBERARENA_FACILITY_TOKEN` (any random string — the facility↔GameMgr auth) in `.env`. The token isn't optional: a v3 config references `${CYBERARENA_FACILITY_TOKEN}` and **won't load** if it's unset.
+- **Env vars.** A v3 config won't load without `API_ROUTER_KEY` and `CYBERARENA_FACILITY_TOKEN` in `.env` (see Run above).
 
 ## Citation
 
