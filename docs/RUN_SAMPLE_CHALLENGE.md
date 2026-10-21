@@ -6,7 +6,7 @@ Recipe for taking a blank host to a finished match of the bundled DEF CON
 proxy and MCP only through the on-net mcp-gateway; the flag-service +
 health-poller run as off-agent containers that plant/probe prod over SSH;
 GameMgr runs on the host. The same steps work for any challenge — just swap the
-config file. Tested most recently on Amazon Linux 2023.
+config file. Tested most recently on Amazon Linux 2023, and Apple Silicon macOS.
 
 **Host:** Docker + Python 3.10+, sudo, ≥ 8 GB disk. The facility / mcp-gateway /
 health-poller images pin `linux/amd64`; on Apple Silicon they run under emulation
