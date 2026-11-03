@@ -190,8 +190,8 @@ api_router:
   container: api-router
   # ── Upstream(s) ────────────────────────────────────────────────────────────
   # One provider. Its key comes from the api-router node's UPSTREAM_API_KEY env
-  # (wired above from ${API_ROUTER_KEY}). Defaults to https://app-us.ppapi.ai.
-  upstream_url: https://app-us.ppapi.ai
+  # (wired above from ${API_ROUTER_KEY}). Defaults to https://app.ppapi.us.
+  upstream_url: https://app.ppapi.us
   #
   # SEVERAL providers on separate keys — e.g. Claude billed to the official
   # Anthropic key, everything else to the reseller. The upstream is chosen per
@@ -204,7 +204,7 @@ api_router:
   #
   # upstreams:
   #   anthropic: { base_url: https://api.anthropic.com }   # key <- $API_ROUTER_KEY_ANTHROPIC (convention)
-  #   ppapi:     { base_url: https://app-us.ppapi.ai }     # key <- $API_ROUTER_KEY_PPAPI     (convention)
+  #   ppapi:     { base_url: https://app.ppapi.us }     # key <- $API_ROUTER_KEY_PPAPI     (convention)
   #   gpt:                                                 # override the convention:
   #     base_url: https://api.openai.com
   #     api_key_env: OPENAI_API_KEY                        # key <- $OPENAI_API_KEY instead
@@ -236,7 +236,7 @@ api_router:
     default: deny            # deny | allow — applied when nothing matches
     allow:
       domains:
-        - "*.ppapi.ai"             # LLM upstream
+        - "*.ppapi.us"             # LLM upstream
         - "api.anthropic.com"
       cidrs:
         - "10.0.0.0/8"             # docker-internal (mcp-gateway, flag_service, …)

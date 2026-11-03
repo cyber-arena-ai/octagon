@@ -2,7 +2,7 @@
 
 **Goal:** install and launch an LLM agent CLI (default: Claude Code) inside every team's dev container, authenticated through a third-party Anthropic-compatible router. The agent process must be query-able, killable cleanly with no orphaned children, and survive `orchestrator.teardown` without leaving stragglers.
 
-**Status:** Complete. All M1 + M2 + M3 + M4 tests pass (20 / 20, including a live API smoke that drives a real Claude through the ppapi.ai router to create and execute a hello-world script).
+**Status:** Complete. All M1 + M2 + M3 + M4 tests pass (20 / 20, including a live API smoke that drives a real Claude through the ppapi.us router to create and execute a hello-world script).
 
 ## What was built
 
@@ -33,7 +33,7 @@
 ## Findings worth recording
 
 ### `ANTHROPIC_BASE_URL` is the root, not the `/v1` path
-Claude Code appends `/v1/messages` to whatever you set as `ANTHROPIC_BASE_URL`. The ppapi.ai router's `OpenAI`-style listing shows `https://app-us.ppapi.ai/v1` as the "base URL", but that's the OpenAI convention. For Anthropic-compatible clients, the URL must be `https://app-us.ppapi.ai` (no `/v1`) — otherwise Claude Code requests `/v1/v1/messages` and the router returns 404.
+Claude Code appends `/v1/messages` to whatever you set as `ANTHROPIC_BASE_URL`. The ppapi.us router's `OpenAI`-style listing shows `https://app.ppapi.us/v1` as the "base URL", but that's the OpenAI convention. For Anthropic-compatible clients, the URL must be `https://app.ppapi.us` (no `/v1`) — otherwise Claude Code requests `/v1/v1/messages` and the router returns 404.
 
 This is documented in `.env.example` so the next person doesn't lose 20 minutes to it.
 
@@ -60,7 +60,7 @@ PASSED
 The test:
 1. Brings up `team1_dev` from the rebuilt dev-base (nodejs+npm baked in).
 2. `ClaudeAgentManager.install()` runs `npm install -g @anthropic-ai/claude-code`, writes the hello-world prompt to `/var/lib/cyberarena/prompt.txt`, exports `ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY` / `IS_SANDBOX=1` into `agent.env`, and launches `claude -p --dangerously-skip-permissions --output-format stream-json --verbose --model claude-sonnet-4-6 < prompt.txt > stdout 2> stderr` under the supervisor-bash.
-3. Claude routes through `https://app-us.ppapi.ai/v1/messages`, decides to `Write` `/tmp/hello.py`, then `Bash` `python3 /tmp/hello.py`, then exit normally.
+3. Claude routes through `https://app.ppapi.us/v1/messages`, decides to `Write` `/tmp/hello.py`, then `Bash` `python3 /tmp/hello.py`, then exit normally.
 4. Test polls until `agent.exit_code` appears (≤ 180 s), asserts `COMPLETED`, asserts `/tmp/hello.py` contains `hello from claude`, and asserts the stream-json transcript echoes that output.
 
 End-to-end wall time: 56 s (npm install ~5 s, claude install + run ~30 s, docker setup/teardown ~20 s). Cost: a few cents at sonnet pricing.
@@ -103,7 +103,7 @@ tests/test_m4_agent.py::test_live_hello_world                                   
 | `registry_dispatches_sleep_to_claude_manager` | `cli: sleep 60` resolves to `ClaudeAgentManager` (since the supervisor mechanics don't care which binary they wrap) |
 | `install_status_kill_lifecycle` | install → status RUNNING (pid + wrapper-pid files non-empty, no exit_code yet) → kill → status TERMINATED/COMPLETED (exit_code recorded within 2 s) → tracked child PID is dead (idempotent second kill doesn't raise) |
 | `install_is_idempotent` | second install replaces the prior supervisor (new pid different from old) and ends in RUNNING |
-| `live_hello_world` (env-gated) | real Claude through the ppapi.ai router actually creates and runs `/tmp/hello.py` and exits 0 |
+| `live_hello_world` (env-gated) | real Claude through the ppapi.us router actually creates and runs `/tmp/hello.py` and exits 0 |
 
 ## Deferred to later milestones
 

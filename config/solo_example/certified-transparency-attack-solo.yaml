@@ -118,12 +118,12 @@ mcp_gateway:   { agent_url: http://mcp-gateway:8080 }
 
 api_router:
   container: api-router
-  upstream_url: https://app-us.ppapi.ai
+  upstream_url: https://app.ppapi.us
   firewall:
     default: deny
     allow:
       domains:
-        - "*.ppapi.ai"
+        - "*.ppapi.us"
         - "api.anthropic.com"
         - "registry.npmjs.org"
       cidrs:

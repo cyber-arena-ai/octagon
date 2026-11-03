@@ -189,7 +189,7 @@ def test_api_router_is_the_agents_only_path_to_egress():
         "arbitrary traffic it is an unmetered path to the LLM.")
 
 
-@pytest.mark.parametrize("host", ["api.anthropic.com", "app-us.ppapi.ai"])
+@pytest.mark.parametrize("host", ["api.anthropic.com", "app.ppapi.us"])
 def test_provider_hosts_reachable_through_proxy_are_still_unusable(host):
     """HONEST LIMIT, pinned so nobody mistakes it for a hole that isn't there.
 

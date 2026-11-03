@@ -64,7 +64,7 @@ def _codex_base() -> str:
     return (
         os.environ.get("CODEX_BASE_URL_TEAM1")
         or os.environ.get("CODEX_BASE_URL")
-        or "https://app-us.ppapi.ai/v1"
+        or "https://app.ppapi.us/v1"
     )
 
 

@@ -29,8 +29,8 @@ upstream:
   # Requests are forwarded verbatim to `base_url + <incoming path>`. Set this to
   # the upstream HOST ROOT; the client supplies the version in its path
   # (e.g. client base_url=http://api-router:8080/v1 -> path /v1/chat/completions
-  #  -> forwarded to https://app-us.ppapi.ai/v1/chat/completions).
-  base_url: "https://app-us.ppapi.ai"
+  #  -> forwarded to https://app.ppapi.us/v1/chat/completions).
+  base_url: "https://app.ppapi.us"
   # REQUIRED. The router forwards with THIS key (Authorization + x-api-key) and
   # drops whatever the client sent — so the real key lives only in the router,
   # never inside containers. The one genuine secret; keep it in the env.
@@ -51,7 +51,7 @@ upstream:
 #     base_url: "https://api.anthropic.com"
 #     api_key: "${API_ROUTER_KEY_ANTHROPIC}"
 #   ppapi:                                        # everything else via the reseller
-#     base_url: "https://app-us.ppapi.ai"
+#     base_url: "https://app.ppapi.us"
 #     api_key: "${API_ROUTER_KEY_PPAPI}"
 #
 # routes:
@@ -108,7 +108,7 @@ compat:
 firewall:
   default: deny           # deny | allow — applied when nothing matches
   allow:
-    domains: ["api.anthropic.com", "*.ppapi.ai", "registry.npmjs.org"]
+    domains: ["api.anthropic.com", "*.ppapi.us", "registry.npmjs.org"]
     cidrs: ["10.0.0.0/8"]
   deny:
     domains: []

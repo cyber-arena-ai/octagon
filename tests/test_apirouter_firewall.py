@@ -14,8 +14,8 @@ def test_default_allow():
 
 
 def test_allow_domain_glob():
-    fw = Firewall(default="deny", allow_domains=["*.ppapi.ai", "api.anthropic.com"])
-    assert fw.decide("app-us.ppapi.ai").allowed
+    fw = Firewall(default="deny", allow_domains=["*.ppapi.us", "api.anthropic.com"])
+    assert fw.decide("app.ppapi.us").allowed
     assert fw.decide("api.anthropic.com").allowed
     assert not fw.decide("evil.com").allowed
 

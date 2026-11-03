@@ -15,7 +15,7 @@ health-poller images pin `linux/amd64`; on Apple Silicon they run under emulatio
 **Keys:** the bundled config runs **Claude vs Codex**, but both teams reach the
 LLM through the **api-router**, so you supply just **one** upstream key
 (`API_ROUTER_KEY`) for a provider that serves both models (e.g. the default
-`app-us.ppapi.ai`). To split across native providers, see [ADD_LLM_UPSTREAM.md](ADD_LLM_UPSTREAM.md).
+`app.ppapi.us`). To split across native providers, see [ADD_LLM_UPSTREAM.md](ADD_LLM_UPSTREAM.md).
 
 ## 1. Install Docker + Python 3.10+
 

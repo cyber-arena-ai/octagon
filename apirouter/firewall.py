@@ -7,8 +7,8 @@ optionally, resolved IP) is permitted. Rules are firewall-style:
   * then allow list (a host matching any allow rule is permitted),
   * else the configured default (``allow`` or ``deny``).
 
-Domains match via ``fnmatch`` globs (case-insensitive), so ``*.ppapi.ai``
-matches ``app-us.ppapi.ai``. IPs match via CIDR membership.
+Domains match via ``fnmatch`` globs (case-insensitive), so ``*.ppapi.us``
+matches ``app.ppapi.us``. IPs match via CIDR membership.
 
 This is consumed by the forward proxy (proxy.py) for both plain-HTTP
 absolute-form requests and HTTPS ``CONNECT`` tunnels (filtered by the CONNECT

@@ -12,7 +12,7 @@ only the Codex-specific bits live here:
                              # consuming the prompt from PROMPT_PATH.
 
 Key differences from Claude (verified against codex-cli 0.135.0 + the
-app-us.ppapi.ai router, 2026-06-11; the pin has since moved to 0.146.0 —
+app.ppapi.us router, 2026-06-11; the pin has since moved to 0.146.0 —
 see CODEX_VERSION — and these behaviors are NOT re-verified there):
 
   * Wire API — Codex's custom model_provider talks the **Responses

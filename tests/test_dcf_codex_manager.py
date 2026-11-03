@@ -21,7 +21,7 @@ from models.agent import AgentConfig
 def _cfg(**over) -> AgentConfig:
     base = dict(
         cli="codex exec", provider="codex", model="gpt-5.4",
-        api_key="sk-TEST", base_url="https://app-us.ppapi.ai/v1",
+        api_key="sk-TEST", base_url="https://app.ppapi.us/v1",
         team_id="team1", team_token="dev-team1-token",
         own_prod_host="team1_prod", own_prod_container_name="team1_prod",
         opposing_prod_hosts=("team2_prod",),
@@ -56,7 +56,7 @@ def test_config_toml_responses_provider():
     toml = _mgr()._build_config_toml(_cfg())
     assert 'model = "gpt-5.4"' in toml
     assert 'model_provider = "arena"' in toml
-    assert 'base_url = "https://app-us.ppapi.ai/v1"' in toml
+    assert 'base_url = "https://app.ppapi.us/v1"' in toml
     assert 'wire_api = "responses"' in toml          # gpt-5.x via Responses API
     assert f'env_key = "{API_KEY_ENV}"' in toml      # key comes from env, not inline
 

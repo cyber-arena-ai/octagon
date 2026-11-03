@@ -44,7 +44,7 @@ The single-upstream shorthand is unchanged and still the default:
 
 ```yaml
 api_router:
-  upstream_url: https://app-us.ppapi.ai     # key from node env UPSTREAM_API_KEY (<- .env API_ROUTER_KEY)
+  upstream_url: https://app.ppapi.us     # key from node env UPSTREAM_API_KEY (<- .env API_ROUTER_KEY)
 ```
 
 - Keep `upstream_url:` → nothing about your `.env` or node env changes.

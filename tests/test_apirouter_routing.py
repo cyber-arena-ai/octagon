@@ -20,7 +20,7 @@ from apirouter.metering import MeteringSink
 ROUTED = {
     "upstreams": {
         "anthropic": {"base_url": "https://api.anthropic.com", "api_key": "SK-OFFICIAL"},
-        "ppapi": {"base_url": "https://app-us.ppapi.ai", "api_key": "SK-RESELLER"},
+        "ppapi": {"base_url": "https://app.ppapi.us", "api_key": "SK-RESELLER"},
     },
     "routes": {
         "default": "ppapi",
@@ -54,7 +54,7 @@ def _build(tmp_path, raw):
 
 @pytest.mark.parametrize("model,host,key", [
     ("claude-opus-4-8", "api.anthropic.com", "SK-OFFICIAL"),   # by_model glob
-    ("gpt-4o", "app-us.ppapi.ai", "SK-RESELLER"),              # unmatched -> default
+    ("gpt-4o", "app.ppapi.us", "SK-RESELLER"),              # unmatched -> default
 ])
 def test_model_picks_upstream_and_its_key(tmp_path, model, host, key):
     client, seen, _ = _build(tmp_path, ROUTED)
@@ -76,7 +76,7 @@ def test_client_token_never_reaches_upstream(tmp_path):
 def test_bodyless_request_goes_to_default(tmp_path):
     client, seen, _ = _build(tmp_path, ROUTED)
     client.get("/v1/models")
-    assert seen[0].url.host == "app-us.ppapi.ai"
+    assert seen[0].url.host == "app.ppapi.us"
 
 
 def test_first_matching_glob_wins(tmp_path):

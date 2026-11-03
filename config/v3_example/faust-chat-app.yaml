@@ -172,13 +172,13 @@ mcp_gateway:   { agent_url: http://mcp-gateway:8080 }
 # Principals (per-team tokens) are auto-derived from teams[*].agent.api_key.
 api_router:
   container: api-router
-  # Upstream LLM endpoint. Defaults to https://app-us.ppapi.ai if omitted.
-  upstream_url: https://app-us.ppapi.ai
+  # Upstream LLM endpoint. Defaults to https://app.ppapi.us if omitted.
+  upstream_url: https://app.ppapi.us
   firewall:
     default: deny            # deny | allow — applied when nothing matches
     allow:
       domains:
-        - "*.ppapi.ai"             # LLM upstream
+        - "*.ppapi.us"             # LLM upstream
         - "api.anthropic.com"
       cidrs:
         - "10.0.0.0/8"             # docker-internal (mcp-gateway, flag_service, …)

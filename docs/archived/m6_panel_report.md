@@ -1,6 +1,6 @@
 # Milestone 6 — Observation Panel — Execution Report
 
-**Goal:** single-file `panel/panel.html` served at `GET /panel`, vanilla JS, no build step, renders live `round` / `phase` / per-team event timeline from the existing event bus. Verified with two screenshots from a real M5.6-style attack (real Claude through ppapi.ai router).
+**Goal:** single-file `panel/panel.html` served at `GET /panel`, vanilla JS, no build step, renders live `round` / `phase` / per-team event timeline from the existing event bus. Verified with two screenshots from a real M5.6-style attack (real Claude through ppapi.us router).
 
 **Status:** Complete. All 46 tests pass (incl. M4 hello-world live + M5.6 live attack + 4 new M6 panel smokes). Live demo captured the panel after `plant_initial_flags()` and after the agent landed an `ACCEPTED` submission.
 

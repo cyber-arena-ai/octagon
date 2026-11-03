@@ -174,7 +174,7 @@ def test_custom_api_key_env_drives_the_whole_chain(monkeypatch):
     game_cfg = dataclasses.replace(game_cfg, api_router=dataclasses.replace(
         game_cfg.api_router, upstream_url="", route_default="custom", route_by_model=(),
         upstreams={"custom": ApiRouterUpstreamConfig(
-            base_url="https://app-us.ppapi.ai", api_key_env="MY_WEIRD_VAR")}))
+            base_url="https://app.ppapi.us", api_key_env="MY_WEIRD_VAR")}))
     router = next(n for n in game_cfg.topology.nodes if n.id == game_cfg.api_router.container)
     monkeypatch.setenv("MY_WEIRD_VAR", "sk-secret-real")
     monkeypatch.setenv("API_ROUTER_KEY_CUSTOM", "sk-convention-should-be-ignored")
@@ -212,7 +212,7 @@ def _multi_upstream_game_cfg(*, explicit_key_env=True):
                     base_url="https://api.anthropic.com",
                     api_key_env=key_env("anthropic", "ANTHROPIC_API_KEY_TEAM1")),
                 "ppapi": ApiRouterUpstreamConfig(
-                    base_url="https://app-us.ppapi.ai",
+                    base_url="https://app.ppapi.us",
                     api_key_env=key_env("ppapi", "UPSTREAM_API_KEY")),
             },
             route_default="ppapi",
@@ -236,7 +236,7 @@ def test_generate_emits_routing_table_apirouter_accepts(monkeypatch):
     rc = router_from_dict(raw)
     assert rc.upstream_for("claude-opus-4-8")[1].base_url == "https://api.anthropic.com"
     assert rc.upstream_for("claude-opus-4-8")[1].api_key == "sk-anthropic-real"
-    assert rc.upstream_for("gpt-4o")[1].base_url == "https://app-us.ppapi.ai"
+    assert rc.upstream_for("gpt-4o")[1].base_url == "https://app.ppapi.us"
 
 
 @pytest.mark.parametrize("upstream_id,expected", [
@@ -275,7 +275,7 @@ def test_game_yaml_rejects_upstream_url_plus_routes():
             "networks": {}, "nodes": [], "teams": [],
             "api_router": {
                 "container": "api-router",
-                "upstream_url": "https://app-us.ppapi.ai",
+                "upstream_url": "https://app.ppapi.us",
                 "upstreams": {"a": {"base_url": "https://a.example"}},
             },
         })
@@ -287,8 +287,8 @@ def test_generated_firewall_decisions_match_game_yaml():
     what the agent can reach."""
     fw = _router_cfg(load_game_config(CONFIG)).firewall
 
-    # allowed: the two domains game.yaml lists (incl. the *.ppapi.ai glob)
-    assert fw.decide("app-us.ppapi.ai").allowed
+    # allowed: the two domains game.yaml lists (incl. the *.ppapi.us glob)
+    assert fw.decide("app.ppapi.us").allowed
     assert fw.decide("api.anthropic.com").allowed
     # allowed: docker-internal CIDR (10.0.0.0/8) — decided on resolved ip
     assert fw.decide("some-host", ip="10.1.2.3").allowed

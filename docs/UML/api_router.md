@@ -72,7 +72,7 @@ key is injected on forward. Metering rows carry an `upstream` field, so
 ```yaml
 upstreams:
   anthropic: { base_url: "https://api.anthropic.com", api_key: "${ANTHROPIC_API_KEY}" }
-  ppapi:     { base_url: "https://app-us.ppapi.ai",   api_key: "${PPAPI_API_KEY}" }
+  ppapi:     { base_url: "https://app.ppapi.us",   api_key: "${PPAPI_API_KEY}" }
 routes:
   default: ppapi                # model matched no rule (or request carried none)
   by_model:
@@ -307,13 +307,13 @@ masked by the runtime anonymous volume.)
 | Field | Effect |
 |---|---|
 | `container` | node id of the api-router (required to inject the volume) |
-| `upstream_url` | Single-provider shorthand (default `https://app-us.ppapi.ai`) |
+| `upstream_url` | Single-provider shorthand (default `https://app.ppapi.us`) |
 | `upstreams.<id>.base_url` / `.api_key_env` | Multi-provider form — see below. Mutually exclusive with `upstream_url` |
 | `routes.default` / `routes.by_model` | Which upstream serves which model |
 | `pricing.<model>.input` / `.output` | USD per 1M tokens. Omitted model ⇒ **0.0, i.e. free** |
 | `budgets.<team_id>` | USD spend cap for that team. Omitted ⇒ unlimited (402 once reached) |
 | `firewall.default` | `deny` or `allow` when no rule matches |
-| `firewall.allow.domains` | fnmatch globs (e.g. `*.ppapi.ai`) |
+| `firewall.allow.domains` | fnmatch globs (e.g. `*.ppapi.us`) |
 | `firewall.allow.cidrs` | e.g. `10.0.0.0/8` for docker-internal traffic |
 | `firewall.deny.domains` / `cidrs` | explicit deny (wins over allow) |
 
@@ -356,12 +356,12 @@ Add an `api_router:` block. Complete, copy-pasteable example (this is
 ```yaml
 api_router:
   container: api-router                   # MUST match the api-router node id in `nodes:`
-  upstream_url: https://app-us.ppapi.ai   # optional; this is the default
+  upstream_url: https://app.ppapi.us   # optional; this is the default
   firewall:
     default: deny              # deny | allow — applied when nothing matches
     allow:
       domains:                 # fnmatch globs, case-insensitive
-        - "*.ppapi.ai"         # LLM upstream
+        - "*.ppapi.us"         # LLM upstream
         - "api.anthropic.com"
         - "registry.npmjs.org" # codex CLI npm install at game start
       cidrs:
@@ -393,7 +393,7 @@ api_router:
   container: api-router
   upstreams:
     anthropic: { base_url: https://api.anthropic.com }   # key <- $API_ROUTER_KEY_ANTHROPIC
-    ppapi:     { base_url: https://app-us.ppapi.ai }     # key <- $API_ROUTER_KEY_PPAPI
+    ppapi:     { base_url: https://app.ppapi.us }     # key <- $API_ROUTER_KEY_PPAPI
   routes:
     default: ppapi
     by_model:
@@ -424,7 +424,7 @@ Three things worth knowing:
 - **Provider hosts in `firewall.allow.domains` are for the AGENT, not the router.**
   The gateway's own upstream calls go out directly and never consult the firewall
   (`gateway.py` has no firewall reference). So listing `api.anthropic.com` /
-  `*.ppapi.ai` only grants the *agent's* `curl` a path to those hosts through the
+  `*.ppapi.us` only grants the *agent's* `curl` a path to those hosts through the
   forward proxy. It is not a metering bypass — the agent has no key a provider would
   accept — but if you want that path closed too, simply omit them; the router loses
   nothing. Pinned in `tests/test_apirouter_no_bypass.py`.

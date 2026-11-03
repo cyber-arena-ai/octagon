@@ -171,7 +171,7 @@ def _upstream_section(cfg: GameConfig) -> dict:
     ar = cfg.api_router
     if not ar.upstreams:
         return {"upstream": {
-            "base_url": ar.upstream_url or "https://app-us.ppapi.ai",
+            "base_url": ar.upstream_url or "https://app.ppapi.us",
             "api_key": "${UPSTREAM_API_KEY}",
         }}
     section: dict = {

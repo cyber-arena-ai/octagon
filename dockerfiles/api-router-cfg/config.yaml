@@ -8,7 +8,7 @@ listen:
   proxy: "0.0.0.0:3128"     # agents' HTTPS_PROXY -> egress firewall
 
 upstream:
-  base_url: "https://app-us.ppapi.ai"
+  base_url: "https://app.ppapi.us"
   # Real upstream key injected at RUNTIME from the container env (never baked
   # into the image). The api-router node passes UPSTREAM_API_KEY in; the game
   # loader sources it from .env (API_ROUTER_KEY). Injected on forward, so the
@@ -36,7 +36,7 @@ compat:
 firewall:
   default: deny
   allow:
-    domains: ["*.ppapi.ai", "api.anthropic.com"]
+    domains: ["*.ppapi.us", "api.anthropic.com"]
     cidrs: ["10.0.0.0/8"]
   deny:
     domains: []

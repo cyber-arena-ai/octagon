@@ -183,7 +183,7 @@ placeholders expand from the process environment. Knobs:
 - `upstream.base_url` — the upstream **host root**; requests go to
   `base_url + <incoming path>`. Set the client's `base_url` so its path lands
   right (e.g. client `http://api-router:8080/v1` → path `/v1/chat/completions`
-  → `https://app-us.ppapi.ai/v1/chat/completions`).
+  → `https://app.ppapi.us/v1/chat/completions`).
 - `upstream.api_key` — optional injected key (else client's auth is forwarded).
 - `pricing` — USD per 1M tokens, keyed by the **model the client sends**. Only
   cost source; absent model → `cost_usd` is null (request still works). litellm

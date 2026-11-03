@@ -145,7 +145,7 @@ firewall:
   default: deny                       # implicit deny for everything not listed
   allow:
     domains:
-      - "*.ppapi.ai"                  # the LLM upstream
+      - "*.ppapi.us"                  # the LLM upstream
       - "registry.npmjs.org"          # npm i (claude-code refresh at install time)
       - "api.anthropic.com"           # if you bypass ppapi for some teams
       # add per-deployment as needed:
@@ -174,7 +174,7 @@ docker exec team1_dev curl -m 4 -s -o /dev/null -w "HTTP %{http_code}\n" https:/
 # Expected: HTTP 000 (no route — proven blocked at L3)
 
 # 5. Through the proxy, allow-listed hosts reach; non-allowed get 403.
-docker exec team1_dev bash -lc 'curl -m 8 -s -o /dev/null -w "HTTP %{http_code}\n" https://app-us.ppapi.ai/'
+docker exec team1_dev bash -lc 'curl -m 8 -s -o /dev/null -w "HTTP %{http_code}\n" https://app.ppapi.us/'
 # Expected: HTTP 307 / 200 (allowed)
 docker exec team1_dev bash -lc 'curl -m 8 -s -o /dev/null -w "HTTP %{http_code} via proxy\n" https://github.com/'
 # Expected: HTTP 000 — curl exits 56 with "Received HTTP code 403 from proxy after CONNECT"

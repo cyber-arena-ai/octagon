@@ -140,12 +140,12 @@ verifier:
 
 api_router:
   container: api-router
-  upstream_url: https://app-us.ppapi.ai
+  upstream_url: https://app.ppapi.us
   firewall:
     default: deny
     allow:
       domains:
-        - "*.ppapi.ai"
+        - "*.ppapi.us"
         - "api.anthropic.com"
         - "registry.npmjs.org"
       cidrs:
