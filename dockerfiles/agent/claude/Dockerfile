@@ -13,14 +13,14 @@ FROM ${BASE_IMAGE}
 # translation. If the upstream ever changes to one that ONLY speaks OpenAI
 # Chat Completions, add `@musistudio/claude-code-router` here and re-add the
 # shim — see docs/UML/agent_manager.md for the pattern.
-# PINNED — keep in sync with CLAUDE_CODE_VERSION in agents/claude.py. Unpinned
-# latest (2.1.208) round-trips opus redacted_thinking blocks the upstream rejects
-# (400) -> opus crash-loop. 2.1.207 is the last known-good.
+# PINNED — keep in sync with CLAUDE_CODE_VERSION in agents/claude.py, which holds
+# the history: 2.1.207 until 11-19 (2.1.208 crash-looped opus on ppapi's
+# redacted_thinking 400s), 2.1.328 since (claude-opus-5-5 needs >= 2.1.280).
 #
 # The npm cache is dropped in the same layer: runtime CLI install is gone, so it
 # is dead weight, and a populated cache lets a root agent re-install packages
 # OFFLINE (see the codex image for why that matters).
-RUN npm install -g @anthropic-ai/claude-code@2.1.207 \
+RUN npm install -g @anthropic-ai/claude-code@2.1.328 \
     && npm cache clean --force && rm -rf /root/.npm
 
 RUN claude --version

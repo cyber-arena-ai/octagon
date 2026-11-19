@@ -52,17 +52,26 @@ from .transport_docker import DockerExecBackend
 
 log = logging.getLogger(__name__)
 
-# PINNED claude-code CLI version. Installed ONLY by dockerfiles/agent/Dockerfile;
+# PINNED claude-code CLI version. Installed ONLY by dockerfiles/agent/claude/Dockerfile;
 # this constant is what `install` expects to find there (`prov.verify_cli` warns on
-# a mismatch, so keep the two in sync). Unpinned `@anthropic-ai/
-# claude-code` follows npm `latest`; 2.1.208 began round-tripping opus's
-# `redacted_thinking` blocks that the upstream rejects (400 "Invalid `data` in
-# `redacted_thinking` block") -> opus process exits 1 -> supervisor restart ->
-# crash-loop (3-7x/match, ~50% wall wasted). 2.1.207 is the last version this
-# harness ran clean on (07-11: single-chunk, no redacted_thinking). Bumping it is
-# a deliberate, tested change — never track latest. (CODEX_VERSION is pinned the
-# same way, but was deliberately bumped ahead of verification; see its comment.)
-CLAUDE_CODE_VERSION = "2.1.207"
+# a mismatch, so keep the two in sync). Bumping it is a deliberate, tested change —
+# never track npm `latest`. (CODEX_VERSION is pinned the same way, but was
+# deliberately bumped ahead of verification; see its comment.)
+#
+# History:
+# - 2.1.207 (07-11 .. 11-19): 2.1.208 began round-tripping opus's
+#   `redacted_thinking` blocks that the upstream of the day (ppapi) rejected (400
+#   "Invalid `data` in `redacted_thinking` block") -> opus process exits 1 ->
+#   supervisor restart -> crash-loop (3-7x/match, ~50% wall wasted).
+# - 2.1.328 (11-19): Anthropic's API refuses claude-opus-5-5 from Claude Code older
+#   than 2.1.280 (400, error_code `claude_code_version_too_old`; the version is read
+#   from the `cc_version=` billing line the CLI puts in the system prompt). Verified
+#   on 2.1.328 with opus-5-5 / opus-4-8 / sonnet-5-5 solo games over the official
+#   relay and opus-4-8 over ppapi, plus the first ~11 min of an async opus-5-5 vs
+#   opus-4-8 duel over the relay: one agent process per seat, no `redacted_thinking`
+#   400s, no router errors. Every run records the CLI it ran in the stream's init
+#   line (`claude_code_version`).
+CLAUDE_CODE_VERSION = "2.1.328"
 
 # Claude-local host paths. The shared layout (STATE_DIR / LOG_DIR /
 # RUN_DIR / WORKDIR / PROMPT_PATH / ENV_PATH) is imported from
