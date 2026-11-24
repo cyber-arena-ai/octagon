@@ -99,6 +99,21 @@ def test_token_rate_from_usage_is_provider_symmetric(tmp_path):
     assert m["team2"]["summary"]["n_calls"] == 1
 
 
+def test_wall_span_covers_overlapping_calls(tmp_path):
+    """wall_s spans the earliest call START to the latest END. Samples are sorted
+    by end, so a long call that started first but finished last must still set
+    the span start (overlapping calls, e.g. a parallel sub-request)."""
+    up = tmp_path / "usage-router.jsonl"
+    rows = [
+        {"ts": 100.0, "team_id": "team1", "output_tokens": 1000, "latency_ms": 100000},  # [0, 100]
+        {"ts": 60.0, "team_id": "team1", "output_tokens": 0, "latency_ms": 10000},  # [50, 60]
+    ]
+    up.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    s = token_rate_from_usage(up)["team1"]["summary"]
+    assert s["wall_s"] == 100.0
+    assert s["mean_tokens_per_s"] == 10.0
+
+
 def test_attribution_method_is_surfaced_so_collapse_is_visible(tmp_path):
     """Each call's attribution signal flows into the per-team summary, so a
     same-family collapse (all calls via a fallback signal) is visible, not
