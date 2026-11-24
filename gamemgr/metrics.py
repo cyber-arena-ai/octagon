@@ -264,7 +264,9 @@ def token_rate_from_usage(
     for team, samples in by_team.items():
         samples.sort(key=lambda x: x["end"])
         tot = sum(s["output_tokens"] for s in samples)
-        span = (samples[-1]["end"] - samples[0]["start"]) if samples else 0.0
+        # Sorted by end, so the earliest START need not be samples[0] when calls
+        # overlap (a long call that began first and finished last).
+        span = (samples[-1]["end"] - min(s["start"] for s in samples)) if samples else 0.0
         # Which signal(s) attributed this team's calls. Anything other than
         # ["model-family"] on a run you expected to split by family is the smell
         # that attribution collapsed (shared token/IP) — see persist_router_usage.
